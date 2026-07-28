@@ -67,16 +67,45 @@ Pino 已配置，需要补充：
 | POST | /api/v1/auth/login | 登录，返回 accessToken + refreshToken |
 | POST | /api/v1/auth/logout | 登出，Token 加入黑名单 |
 | POST | /api/v1/auth/refresh | 刷新 accessToken |
-| GET | /api/v1/auth/me | 获取当前用户信息 |
+| GET | /api/v1/auth/me | 获取当前用户信息（含 profiles 表明细） |
+
+**用户角色存储策略：**
+- Supabase Auth `auth.users` 存储认证信息（email/password）
+- `profiles` 表存储业务属性（role, parking_id, display_name）
+- 登录成功后 JOIN `profiles` 表返回完整用户信息
 
 **核心代码结构：**
 ```typescript
 // auth.service.ts
 export class AuthService {
   async login(dto: LoginDTO): Promise<LoginResult> {
-    // 1. 调用 Supabase Auth signInWithPassword
-    // 2. 获取用户角色信息
+    // 1. 调用 Supabase Auth signInWithPassword 验证密码
+    // 2. 查询 profiles 表获取角色信息
     // 3. 返回 Token + 用户信息
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: dto.email,
+      password: dto.password,
+    });
+    if (error) throw new UnauthorizedError(error.message());
+    
+    // 获取用户角色
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('role, parking_id, display_name')
+      .eq('id', data.user.id)
+      .single();
+    
+    return {
+      accessToken: data.session.access_token,
+      refreshToken: data.session.refresh_token,
+      user: {
+        id: data.user.id,
+        email: data.user.email,
+        role: profile?.role || 'operator',
+        parkingId: profile?.parking_id,
+        displayName: profile?.display_name,
+      },
+    };
   }
 }
 ```
@@ -97,9 +126,38 @@ req.user = { id: user.id, role: user.user_metadata?.role };
 
 **新建文件：** `server/src/middleware/authorize.ts`
 
-实现角色权限校验，用法：
+**角色存储策略：**
+- 角色存储在 `profiles` 表（非 user_metadata）
+- 鉴权中间件从 JWT 中获得 user_id，再查 `profiles` 表获取 role
+- 支持装饰器模式：`authorize('admin', 'operator')`
+
+**实现逻辑：**
 ```typescript
-// 只有超级管理员可以创建停车场
+export function authorize(...allowedRoles: string[]) {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const userId = req.user?.id;
+      if (!userId) throw new UnauthorizedError();
+      
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', userId)
+        .single();
+      
+      if (!profile || !allowedRoles.includes(profile.role)) {
+        throw new ForbiddenError(`需要角色: ${allowedRoles.join(', ')}`);
+      }
+      
+      req.user.role = profile.role;
+      next();
+    } catch (error) {
+      next(error);
+    }
+  };
+}
+
+// 路由配置示例:
 parkingRouter.post('/', authorize('superadmin'), parkingController.create);
 ```
 

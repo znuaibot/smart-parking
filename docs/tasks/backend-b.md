@@ -80,7 +80,9 @@ RETURNING *;
 -- 返回行数为0 → 抛出 ConflictError(409)
 ```
 
-### 任务 B-3: 车辆入场模块⭐ 核心任务
+> 注：`version` 字段已包含在初始迁移中，默认值为 0。
+
+### 任务 B-3: 车辆入场模块 ⭐ 核心任务
 
 **新建文件：**
 - `server/src/modules/vehicle/vehicle.service.ts`

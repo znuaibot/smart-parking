@@ -37,6 +37,42 @@ COMMENT ON TABLE parkings IS '停车场主表';
 CREATE INDEX idx_parkings_status ON parkings(status);
 CREATE INDEX idx_parkings_code ON parkings(code);
 
+-- 2.5 用户资料表 (Supabase Auth 的扩展，用于 RBAC)
+CREATE TABLE IF NOT EXISTS profiles (
+    id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+    role user_role NOT NULL DEFAULT 'operator',
+    parking_id UUID REFERENCES parkings(id),
+    display_name VARCHAR(50),
+    phone VARCHAR(20),
+    avatar_url TEXT,
+    status VARCHAR(20) DEFAULT 'active',
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+COMMENT ON TABLE profiles IS '用户资料表 - Supabase Auth 扩展，用于 RBAC 权限管理';
+
+CREATE INDEX idx_profiles_role ON profiles(role);
+CREATE INDEX idx_profiles_parking ON profiles(parking_id);
+
+-- 自动创建用户资料触发器
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER AS $$
+BEGIN
+    INSERT INTO public.profiles (id, display_name, role)
+    VALUES (
+        NEW.id,
+        COALESCE(NEW.raw_user_meta_data->>'display_name', split_part(NEW.email, '@', 1)),
+        COALESCE((NEW.raw_user_meta_data->>'role')::user_role, 'operator')
+    );
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE TRIGGER on_auth_user_created
+    AFTER INSERT ON auth.users
+    FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
 -- 2. 车位表
 CREATE TABLE IF NOT EXISTS parking_spaces (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -49,6 +85,7 @@ CREATE TABLE IF NOT EXISTS parking_spaces (
     current_plate VARCHAR(20),
     current_entry_id UUID,
     device_id VARCHAR(50),
+    version INT DEFAULT 0,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
     

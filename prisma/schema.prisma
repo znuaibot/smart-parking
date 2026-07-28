@@ -79,8 +79,27 @@ model Parking {
   billingRules     BillingRule[]
   memberships      Membership[]
   reservations     Reservation[]
+  profiles         Profile[]
 
   @@map("parkings")
+}
+
+model Profile {
+  id          String    @id @default(uuid()) @db.Uuid
+  role        UserRole  @default(operator)
+  parkingId   String?   @map("parking_id") @db.Uuid
+  displayName String?   @map("display_name") @db.VarChar(50)
+  phone       String?   @db.VarChar(20)
+  avatarUrl   String?   @map("avatar_url") @db.Text
+  status      String    @default("active")
+  createdAt   DateTime  @map("created_at") @default(now()) @db.Timestamptz(6)
+  updatedAt   DateTime  @map("updated_at") @updatedAt @db.Timestamptz(6)
+
+  parking     Parking?  @relation(fields: [parkingId], references: [id])
+
+  @@index([role])
+  @@index([parkingId])
+  @@map("profiles")
 }
 
 model ParkingSpace {
@@ -94,6 +113,7 @@ model ParkingSpace {
   currentPlate  String?     @map("current_plate") @db.VarChar(20)
   currentEntryId String?    @map("current_entry_id") @db.Uuid
   deviceId      String?     @map("device_id") @db.VarChar(50)
+  version       Int         @default(0)
   createdAt     DateTime    @map("created_at") @default(now()) @db.Timestamptz(6)
   updatedAt     DateTime    @map("updated_at") @updatedAt @db.Timestamptz(6)
 
