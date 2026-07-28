@@ -12,13 +12,22 @@ export function requestId(req: Request, res: Response, next: NextFunction) {
 
 // Express 类型扩展
 declare global {
-  namespace Express {
-    interface Request {
-      requestId: string;
-      user?: {
-        id: string;
-        role: string;
-      };
-    }
+  interface ExpressRequest extends Express.Request {
+    requestId: string;
+    user?: {
+      id: string;
+      role: string;
+    };
+  }
+}
+
+// eslint-disable-next-line @typescript-eslint/no-namespace
+declare namespace Express {
+  interface Request {
+    requestId: string;
+    user?: {
+      id: string;
+      role: string;
+    };
   }
 }

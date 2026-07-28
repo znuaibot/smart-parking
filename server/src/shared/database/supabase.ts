@@ -128,7 +128,7 @@ export async function testConnection(): Promise<boolean> {
   try {
     const startTime = Date.now();
     const { error } = await supabaseInstance
-      ?.from('parkings')
+      .from('parkings')
       .select('id')
       .limit(1);
     const duration = Date.now() - startTime;
