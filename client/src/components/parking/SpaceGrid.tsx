@@ -1,5 +1,5 @@
-import React from 'react';
-import { Popover, Select, Descriptions, Divider, Alert, Typography, Card, Space } from 'antd';
+import React, { useState } from 'react';
+import { Popover, Select, Descriptions, Divider, Alert, Typography, Space } from 'antd';
 import type { ParkingSpace } from '@/types';
 import { spaceApi } from '@/api/space';
 import { message } from 'antd';
@@ -34,6 +34,7 @@ interface SpaceItemProps {
 
 const SpaceItem: React.FC<SpaceItemProps> = ({ space, onStatusChange }) => {
   const config = statusConfig[space.status] || statusConfig.disabled;
+  const [hovered, setHovered] = useState(false);
 
   const handleStatusChange = async (status: string) => {
     try {
@@ -42,6 +43,14 @@ const SpaceItem: React.FC<SpaceItemProps> = ({ space, onStatusChange }) => {
       onStatusChange(space.id, status);
     } catch {
       message.error('更新失败');
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      // 触发 Popover 打开
+      (e.currentTarget as HTMLElement).click();
     }
   };
 
@@ -93,6 +102,10 @@ const SpaceItem: React.FC<SpaceItemProps> = ({ space, onStatusChange }) => {
   return (
     <Popover content={popoverContent} trigger="click" placement="top">
       <div
+        role="button"
+        tabIndex={0}
+        aria-label={`车位 ${space.code}，状态: ${config.label}`}
+        aria-pressed={false}
         style={{
           aspectRatio: '3/2',
           borderRadius: 8,
@@ -106,17 +119,16 @@ const SpaceItem: React.FC<SpaceItemProps> = ({ space, onStatusChange }) => {
           padding: 6,
           transition: 'transform 150ms ease, box-shadow 150ms ease',
           position: 'relative',
+          transform: hovered ? 'scale(1.06)' : 'scale(1)',
+          zIndex: hovered ? 2 : 1,
+          boxShadow: hovered ? '0 4px 12px rgba(0,0,0,0.1)' : 'none',
+          outline: 'none',
         }}
-        onMouseEnter={e => {
-          e.currentTarget.style.transform = 'scale(1.06)';
-          e.currentTarget.style.zIndex = '2';
-          e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)';
-        }}
-        onMouseLeave={e => {
-          e.currentTarget.style.transform = 'scale(1)';
-          e.currentTarget.style.zIndex = '1';
-          e.currentTarget.style.boxShadow = 'none';
-        }}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+        onFocus={() => setHovered(true)}
+        onBlur={() => setHovered(false)}
+        onKeyDown={handleKeyDown}
       >
         <div
           style={{

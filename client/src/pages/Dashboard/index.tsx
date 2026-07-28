@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Card, Row, Col, Typography, Progress, message, Statistic, Space, Alert } from 'antd';
 import { CarOutlined, TeamOutlined, DollarOutlined, RiseOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useQuery } from 'react-query';
@@ -17,11 +17,10 @@ const DashboardPage: React.FC = () => {
   const [lastUpdated, setLastUpdated] = useState(dayjs());
   const [statsError, setStatsError] = useState<string | null>(null);
 
-  // 使用 React Query 管理停车场列表数据（带缓存）
+  // 使用 React Query 管理停车场列表数据（带缓存 + 自动轮询）
   const {
     data: parkings = [],
     isLoading: loading,
-    refetch: refetchParkings,
   } = useQuery<Parking[]>(
     'parkings-list',
     async () => {
@@ -29,6 +28,8 @@ const DashboardPage: React.FC = () => {
       return res.data.list;
     },
     {
+      refetchInterval: 30000,              // 30s 自动轮询
+      refetchIntervalInBackground: false,  // Tab 不可见时暂停
       onSuccess: () => setLastUpdated(dayjs()),
       onError: (err: unknown) => {
         const axiosError = err as { response?: { data?: { message?: string } } };
@@ -50,6 +51,8 @@ const DashboardPage: React.FC = () => {
     },
     {
       enabled: !!firstParkingId,
+      refetchInterval: 30000,
+      refetchIntervalInBackground: false,
       onError: (err: unknown) => {
         const axiosError = err as { response?: { data?: { message?: string } } };
         const msg = axiosError.response?.data?.message || '获取实时统计数据失败';
@@ -58,17 +61,6 @@ const DashboardPage: React.FC = () => {
       onSuccess: () => setStatsError(null),
     }
   );
-
-  // Auto refresh every 30 seconds
-  useEffect(() => {
-    const interval = setInterval(() => {
-      refetchParkings();
-      if (firstParkingId) {
-        refetchStats();
-      }
-    }, 30000);
-    return () => clearInterval(interval);
-  }, [refetchParkings, refetchStats, firstParkingId]);
 
   // Compute aggregate data
   const totalSpaces = parkings.reduce((sum, p) => sum + p.totalSpaces, 0);

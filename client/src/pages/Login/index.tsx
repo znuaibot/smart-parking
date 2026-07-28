@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Form, Input, Button, Checkbox, Typography, message } from 'antd';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { authApi } from '@/api/auth';
 import { useAuth } from '@/hooks/useAuth';
 import type { LoginRequest } from '@/types';
@@ -9,7 +9,8 @@ const { Title, Paragraph, Text } = Typography;
 
 const LoginPage: React.FC = () => {
   const navigate = useNavigate();
-  const { setUser } = useAuth();
+  const location = useLocation();
+  const { setUser, isAuthenticated } = useAuth();
   const [loading, setLoading] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [form] = Form.useForm();
@@ -17,6 +18,20 @@ const LoginPage: React.FC = () => {
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  // 解析查询参数中的 redirect 路径
+  const redirectTo = React.useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    const redirect = params.get('redirect');
+    return redirect && redirect.startsWith('/') ? redirect : '/';
+  }, [location.search]);
+
+  // 已登录则直接跳转
+  useEffect(() => {
+    if (isAuthenticated) {
+      navigate(redirectTo, { replace: true });
+    }
+  }, [isAuthenticated, navigate, redirectTo]);
 
   const handleSubmit = async (values: LoginRequest & { remember?: boolean }) => {
     setLoading(true);
@@ -29,7 +44,7 @@ const LoginPage: React.FC = () => {
       localStorage.setItem('refreshToken', refreshToken);
       setUser(user, accessToken);
       message.success('登录成功');
-      navigate('/');
+      navigate(redirectTo, { replace: true });
     } catch (err: unknown) {
       const axiosError = err as { response?: { data?: { message?: string } } };
       const msg = axiosError.response?.data?.message || '用户名或密码错误';
