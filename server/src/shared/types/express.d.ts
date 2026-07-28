@@ -17,6 +17,13 @@ declare global {
       /** 用户所属停车场 ID（可选，operator/cashier 通常有） */
       parkingId?: string;
     }
+
+    interface Request {
+      /** 请求唯一标识 */
+      requestId?: string;
+      /** 使用 Bearer Token 的用户 IP */
+      ip?: string;
+    }
   }
 }
 

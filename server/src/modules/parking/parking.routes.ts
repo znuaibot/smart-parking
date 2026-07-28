@@ -26,3 +26,9 @@ parkingRouter.delete('/:id', requireParkingAccess, requireRole('superadmin'), (r
 
 // POST /api/v1/parkings/:id/spaces/batch - 批量创建车位（仅管理员）
 parkingRouter.post('/:id/spaces/batch', requireParkingAccess, requireRole('superadmin', 'admin'), (req, res, next) => spaceController.batchCreate(req, res, next));
+
+// GET /api/v1/parkings/:id/spaces - 车位列表（兼容前端 RESTful 路径）
+parkingRouter.get('/:id/spaces', requireParkingAccess, (req, res, next) => {
+  req.query.parkingId = req.params.id;
+  return spaceController.list(req, res, next);
+});
