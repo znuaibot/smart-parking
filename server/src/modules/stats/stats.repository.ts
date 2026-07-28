@@ -121,11 +121,11 @@ export class StatsRepository {
         parkingId: result.parking_id,
         statDate: result.stat_date,
         totalEntries: result.total_entries,
-        totalExits: 0, // 从物化视图无法获取
+        totalExits: result.total_exits || 0, // P2-C 修复：从物化视图获取
         avgDurationMinutes: Math.round(result.avg_duration_minutes || 0),
         totalRevenue: result.total_revenue || 0,
-        paidAmount: 0, // 需要额外查询
-        pendingAmount: 0, // 需要额外查询
+        paidAmount: result.paid_amount || 0, // P2-C 修复：从物化视图获取
+        pendingAmount: result.pending_amount || 0, // P2-C 修复：从物化视图获取
       };
     } catch (error: any) {
       logDbQuery(
@@ -170,11 +170,11 @@ export class StatsRepository {
         parkingId: r.parking_id,
         statDate: r.stat_date,
         totalEntries: r.total_entries,
-        totalExits: 0,
+        totalExits: r.total_exits || 0, // P2-C 修复：从物化视图获取
         avgDurationMinutes: Math.round(r.avg_duration_minutes || 0),
         totalRevenue: r.total_revenue || 0,
-        paidAmount: 0,
-        pendingAmount: 0,
+        paidAmount: r.paid_amount || 0, // P2-C 修复：从物化视图获取
+        pendingAmount: r.pending_amount || 0, // P2-C 修复：从物化视图获取
       }));
     } catch (error: any) {
       logDbQuery(

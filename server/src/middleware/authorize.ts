@@ -186,20 +186,26 @@ export function authorizePermissions(
 }
 
 /**
- * 资源所有者校验中间件
+ * 资源所有者校验中间件（支持同步/异步）
  * 检查当前用户是否为资源所有者或管理员
+ * 
+ * P2-B 修复：支持异步 getOwnerId，适应需要查库获取资源所有者的场景
  * 
  * 使用方式：
  * - authorizeOwner(() => req.params.userId)
+ * - authorizeOwner(async (req) => {
+ *     const record = await parkings.findOne(req.params.parkingId);
+ *     return record?.ownerId;
+ *   })
  */
-export function authorizeOwner(getOwnerId: (req: Request) => string | undefined) {
-  return (req: Request, res: Response, next: NextFunction): void => {
+export function authorizeOwner(getOwnerId: (req: Request) => string | undefined | Promise<string | undefined>) {
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       if (!req.user) {
         throw new UnauthorizedError('请先登录');
       }
 
-      const ownerId = getOwnerId(req);
+      const ownerId = await getOwnerId(req);
       const userRole = req.user.role as UserRole;
 
       // 管理员可以访问任何资源

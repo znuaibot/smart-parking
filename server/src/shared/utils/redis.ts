@@ -18,6 +18,7 @@ export class RedisTokenBlacklist {
   private static instance: RedisTokenBlacklist | null = null;
   private client: Redis | null = null;
   private connected = false;
+  private configured = false; // 标记是否配置了 Redis
 
   private constructor() {}
 
@@ -40,6 +41,7 @@ export class RedisTokenBlacklist {
 
     try {
       if (config.REDIS_URL) {
+        this.configured = true;
         this.client = new Redis(config.REDIS_URL, {
           maxRetriesPerRequest: 3,
           retryStrategy(times: number) {
@@ -48,6 +50,7 @@ export class RedisTokenBlacklist {
           },
         });
       } else if (config.REDIS_HOST) {
+        this.configured = true;
         this.client = new Redis({
           host: config.REDIS_HOST,
           port: config.REDIS_PORT || 6379,
@@ -59,7 +62,7 @@ export class RedisTokenBlacklist {
           },
         });
       } else {
-        logger.warn('Redis not configured, token blacklist will be in-memory fallback');
+        logger.warn('Redis not configured, token blacklist disabled (dev mode)');
         return;
       }
 
@@ -94,10 +97,17 @@ export class RedisTokenBlacklist {
    * 将 Token 加入黑名单
    * @param token JWT Token
    * @param ttlSeconds TTL（秒），默认 24 小时
+   * @throws ServiceUnavailableError 当 Redis 配置了但连接失败时抛出
    */
   async blacklistToken(token: string, ttlSeconds: number = 86400): Promise<void> {
     if (!this.connected || !this.client) {
-      logger.warn('Redis not connected, blacklist operation skipped');
+      // P2-A 修复：Redis 配置了但连接失败时，不能静默跳过黑名单操作
+      // 抛出异常让调用方感知，避免已注销 token 仍可使用
+      if (this.configured) {
+        throw new Error('Redis 连接不可用，无法将 Token 加入黑名单');
+      }
+      // Redis 未配置时的降级处理（仅开发环境）
+      logger.warn('Redis not configured, blacklist operation skipped (dev mode only)');
       return;
     }
 
@@ -107,9 +117,16 @@ export class RedisTokenBlacklist {
 
   /**
    * 检查 Token 是否在黑名单中
+   * P2-A 修复：Redis 不可用时返回 true（安全默认：假设 token 可能被黑名单）
    */
   async isBlacklisted(token: string): Promise<boolean> {
     if (!this.connected || !this.client) {
+      // Redis 配置了但连接失败时，返回 true（安全默认值）
+      // 宁可拒绝合法请求，也不能放行可能已注销的 token
+      if (this.configured) {
+        logger.warn('Redis unavailable, assuming token is blacklisted (fail-closed)');
+        return true;
+      }
       return false;
     }
 
