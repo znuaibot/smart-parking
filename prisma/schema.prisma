@@ -1,0 +1,241 @@
+// Prisma Schema - 停车场管理系统
+// 注意: 实际使用 Supabase 作为数据库，此文件仅用于 Prisma Client 生成类型
+// 表结构以 supabase/migrations/ 中的 SQL 为准
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ParkingStatus {
+  active
+  inactive
+  suspended
+}
+
+enum SpaceType {
+  normal
+  vip
+  disabled
+  charging
+}
+
+enum SpaceStatus {
+  available
+  occupied
+  reserved
+  disabled
+}
+
+enum VehicleType {
+  small
+  large
+  new_energy
+  unknown
+}
+
+enum RecordStatus {
+  parked
+  exited
+  overstay
+  exception
+}
+
+enum BillStatus {
+  pending
+  paid
+  refunded
+  waived
+  disputed
+}
+
+enum UserRole {
+  superadmin
+  admin
+  operator
+  cashier
+}
+
+model Parking {
+  id               String         @id @default(uuid()) @db.Uuid
+  name             String         @db.VarChar(100)
+  code             String         @unique @db.VarChar(50)
+  address          String?        @db.Text
+  contactPhone     String?        @map("contact_phone") @db.VarChar(20)
+  totalSpaces      Int            @map("total_spaces") @default(0)
+  availableSpaces  Int            @map("available_spaces") @default(0)
+  status           ParkingStatus  @default(active)
+  config           Json           @default("{}")
+  createdAt        DateTime       @map("created_at") @default(now()) @db.Timestamptz(6)
+  updatedAt        DateTime       @map("updated_at") @updatedAt @db.Timestamptz(6)
+
+  spaces           ParkingSpace[]
+  entryRecords     VehicleEntryRecord[]
+  bills            Bill[]
+  billingRules     BillingRule[]
+  memberships      Membership[]
+  reservations     Reservation[]
+
+  @@map("parkings")
+}
+
+model ParkingSpace {
+  id            String      @id @default(uuid()) @db.Uuid
+  parkingId     String      @map("parking_id") @db.Uuid
+  code          String      @db.VarChar(20)
+  zone          String?     @db.VarChar(10)
+  floor         Int         @default(1)
+  spaceType     SpaceType   @map("space_type") @default(normal)
+  status        SpaceStatus @default(available)
+  currentPlate  String?     @map("current_plate") @db.VarChar(20)
+  currentEntryId String?    @map("current_entry_id") @db.Uuid
+  deviceId      String?     @map("device_id") @db.VarChar(50)
+  createdAt     DateTime    @map("created_at") @default(now()) @db.Timestamptz(6)
+  updatedAt     DateTime    @map("updated_at") @updatedAt @db.Timestamptz(6)
+
+  parking       Parking     @relation(fields: [parkingId], references: [id], onDelete: Cascade)
+  reservations  Reservation[]
+
+  @@unique([parkingId, code])
+  @@index([parkingId, status])
+  @@index([parkingId, zone])
+  @@map("parking_spaces")
+}
+
+model VehicleEntryRecord {
+  id             String       @id @default(uuid()) @db.Uuid
+  parkingId      String       @map("parking_id") @db.Uuid
+  plateNumber    String       @map("plate_number") @db.VarChar(20)
+  vehicleType    VehicleType  @map("vehicle_type") @default(unknown)
+  entryTime      DateTime     @map("entry_time") @db.Timestamptz(6)
+  exitTime       DateTime?    @map("exit_time") @db.Timestamptz(6)
+  entryGateId    String?      @map("entry_gate_id") @db.VarChar(50)
+  exitGateId     String?      @map("exit_gate_id") @db.VarChar(50)
+  entryImageUrl  String?      @map("entry_image_url") @db.Text
+  exitImageUrl   String?      @map("exit_image_url") @db.Text
+  lprConfidence  Decimal?     @map("lpr_confidence") @db.Decimal(5, 2)
+  status         RecordStatus @default(parked)
+  operatorId     String?      @map("operator_id") @db.Uuid
+  remark         String?      @db.Text
+  createdAt      DateTime     @map("created_at") @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime     @map("updated_at") @updatedAt @db.Timestamptz(6)
+
+  parking        Parking      @relation(fields: [parkingId], references: [id])
+  bill           Bill?
+
+  @@index([parkingId, entryTime])
+  @@index([plateNumber, entryTime])
+  @@index([status])
+  @@map("vehicle_entry_records")
+}
+
+model BillingRule {
+  id                   String       @id @default(uuid()) @db.Uuid
+  parkingId            String       @map("parking_id") @db.Uuid
+  name                 String       @db.VarChar(100)
+  priority             Int          @default(0)
+  vehicleType          VehicleType  @map("vehicle_type") @default(small)
+  timePeriod           Json?        @map("time_period")
+  freeMinutes          Int          @map("free_minutes") @default(15)
+  firstHourRate        Decimal?     @map("first_hour_rate") @db.Decimal(10, 2)
+  subsequentHourRate   Decimal?     @map("subsequent_hour_rate") @db.Decimal(10, 2)
+  dailyCap             Decimal?     @map("daily_cap") @db.Decimal(10, 2)
+  nightFlatRate        Decimal?     @map("night_flat_rate") @db.Decimal(10, 2)
+  effectiveFrom        DateTime?    @map("effective_from") @db.Timestamptz(6)
+  effectiveTo          DateTime?    @map("effective_to") @db.Timestamptz(6)
+  status               String       @default("active")
+  createdAt            DateTime     @map("created_at") @default(now()) @db.Timestamptz(6)
+
+  parking              Parking      @relation(fields: [parkingId], references: [id])
+
+  @@index([parkingId, status, priority])
+  @@map("billing_rules")
+}
+
+model Bill {
+  id              String      @id @default(uuid()) @db.Uuid
+  recordId        String      @unique @map("record_id") @db.Uuid
+  parkingId       String      @map("parking_id") @db.Uuid
+  plateNumber     String      @map("plate_number") @db.VarChar(20)
+  durationMinutes Int         @map("duration_minutes")
+  amount          Decimal     @db.Decimal(10, 2)
+  discountAmount  Decimal     @map("discount_amount") @default(0) @db.Decimal(10, 2)
+  discountReason  String?     @map("discount_reason") @db.VarChar(100)
+  actualAmount    Decimal     @map("actual_amount") @db.Decimal(10, 2)
+  status          BillStatus  @default(pending)
+  paidAt          DateTime?   @map("paid_at") @db.Timestamptz(6)
+  paymentMethod   String?     @map("payment_method") @db.VarChar(20)
+  transactionId   String?     @map("transaction_id") @db.VarChar(100)
+  operatorId      String?     @map("operator_id") @db.Uuid
+  createdAt       DateTime    @map("created_at") @default(now()) @db.Timestamptz(6)
+  updatedAt       DateTime    @map("updated_at") @updatedAt @db.Timestamptz(6)
+
+  record          VehicleEntryRecord @relation(fields: [recordId], references: [id])
+  parking         Parking     @relation(fields: [parkingId], references: [id])
+
+  @@index([parkingId, createdAt])
+  @@index([plateNumber])
+  @@index([status, createdAt])
+  @@map("bills")
+}
+
+model OperationLog {
+  id          BigInt    @id @default(autoincrement())
+  userId      String?   @map("user_id") @db.Uuid
+  action      String    @db.VarChar(50)
+  targetType  String?   @map("target_type") @db.VarChar(50)
+  targetId    String?   @map("target_id") @db.VarChar(50)
+  detail      Json?
+  ipAddress   String?   @map("ip_address") @db.Inet
+  userAgent   String?   @map("user_agent") @db.Text
+  createdAt   DateTime  @map("created_at") @default(now()) @db.Timestamptz(6)
+
+  @@index([userId, createdAt])
+  @@index([targetType, targetId])
+  @@map("operation_logs")
+}
+
+model Membership {
+  id          String    @id @default(uuid()) @db.Uuid
+  parkingId   String    @map("parking_id") @db.Uuid
+  userId      String    @map("user_id") @db.Uuid
+  cardType    String    @map("card_type") @db.VarChar(20)
+  plateNumber String    @map("plate_number") @db.VarChar(20)
+  startDate   DateTime  @map("start_date") @db.Date
+  endDate     DateTime  @map("end_date") @db.Date
+  balance     Decimal   @default(0) @db.Decimal(10, 2)
+  status      String    @default("active") @db.VarChar(20)
+  createdAt   DateTime  @map("created_at") @default(now()) @db.Timestamptz(6)
+  updatedAt   DateTime  @map("updated_at") @updatedAt @db.Timestamptz(6)
+
+  parking     Parking   @relation(fields: [parkingId], references: [id])
+
+  @@index([userId])
+  @@index([plateNumber])
+  @@map("memberships")
+}
+
+model Reservation {
+  id            String    @id @default(uuid()) @db.Uuid
+  parkingId     String    @map("parking_id") @db.Uuid
+  spaceId       String?   @map("space_id") @db.Uuid
+  userId        String    @map("user_id") @db.Uuid
+  plateNumber   String    @map("plate_number") @db.VarChar(20)
+  reservedStart DateTime  @map("reserved_start") @db.Timestamptz(6)
+  reservedEnd   DateTime  @map("reserved_end") @db.Timestamptz(6)
+  actualEntry   DateTime? @map("actual_entry") @db.Timestamptz(6)
+  actualExit    DateTime? @map("actual_exit") @db.Timestamptz(6)
+  status        String    @default("pending") @db.VarChar(20)
+  createdAt     DateTime  @map("created_at") @default(now()) @db.Timestamptz(6)
+
+  parking       Parking   @relation(fields: [parkingId], references: [id])
+  space         ParkingSpace? @relation(fields: [spaceId], references: [id])
+
+  @@index([spaceId, status])
+  @@index([parkingId, reservedStart])
+  @@map("reservations")
+}

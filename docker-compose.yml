@@ -1,0 +1,125 @@
+# docker-compose.yml - 本地开发与测试环境
+# 一键启动: docker compose up -d
+# 包含: API + PostgreSQL + Redis + MinIO
+
+version: '3.8'
+
+services:
+  # ==================== API 服务 ====================
+  api:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: parking-api
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development
+      - PORT=3000
+      - DATABASE_URL=postgresql://parking:parking123@postgres:5432/parking_db
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=dev-jest-secret-key-please-change-in-production
+      - CORS_ORIGINS=http://localhost:5173,http://localhost:3000
+      - SUPABASE_URL=http://localhost:54321
+      - SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZXYiLCJyb2xlIjoiYW5vbiIsImV4cCI6MTk4Mzg3NTQ2Mn0.Lr7ZhG06RFjtMJ遼
+      - SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZXYiLCJyb2xlIjoic2VydmljZV9yb2xlIiwiZXhwIjoxOTgzODc1NDYyfQ.X abbr
+    volumes:
+      - ./server/src:/app/src
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - parking-network
+
+  # ==================== PostgreSQL ====================
+  postgres:
+    image: postgres:15-alpine
+    container_name: parking-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: parking_db
+      POSTGRES_USER: parking
+      POSTGRES_PASSWORD: parking123
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./scripts/db/init.sql:/docker-entrypoint-initdb.d/01-init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U parking"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - parking-network
+
+  # ==================== Redis ====================
+  redis:
+    image: redis:7-alpine
+    container_name: parking-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes --maxmemory 256mb
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - parking-network
+
+  # ==================== MinIO (文件存储) ====================
+  minio:
+    image: minio/minio:latest
+    container_name: parking-minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - parking-network
+
+  # ==================== Nginx (反向代理 + 静态资源) ====================
+  nginx:
+    image: nginx:alpine
+    container_name: parking-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./nginx/conf.d:/etc/nginx/conf.d
+      - ./ssl:/etc/nginx/ssl
+    depends_on:
+      - api
+    restart: unless-stopped
+    networks:
+      - parking-network
+
+# ==================== 网络 ====================
+networks:
+  parking-network:
+    driver: bridge
+
+# ==================== 卷 ====================
+volumes:
+  postgres-data:
+  redis-data:
+  minio-data:

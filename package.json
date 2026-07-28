@@ -1,0 +1,40 @@
+{
+  "name": "smart-parking",
+  "version": "1.0.0",
+  "description": "智能停车场管理系统 - 车位管家",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently \"npm run dev:api\" \"npm run dev:client\"",
+    "dev:api": "npm run dev --workspace=server",
+    "dev:client": "npm run dev --workspace=client",
+    "build": "npm run build --workspace=server && npm run build --workspace=client",
+    "test": "npm run test --workspace=server",
+    "lint": "eslint . --ext .ts,.tsx",
+    "db:migrate": "supabase db push",
+    "db:reset": "supabase db reset",
+    "db:seed": "supabase db execute --file supabase/seed.sql",
+    "supabase:start": "supabase start",
+    "supabase:stop": "supabase stop",
+    "supabase:link": "supabase link --project-ref $SUPABASE_PROJECT_REF",
+    "clean": "rm -rf node_modules client/node_modules server/node_modules"
+  },
+  "workspaces": [
+    "server",
+    "client"
+  ],
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "supabase": "^1.142.0"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "npm": ">=10.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/znuaibot/smart-parking.git"
+  },
+  "keywords": ["parking", "management", "supabase", "postgresql"],
+  "author": "Parking Architect Team",
+  "license": "MIT"
+}
