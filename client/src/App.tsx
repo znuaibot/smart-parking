@@ -10,6 +10,7 @@ import BillingRuleList from '@/pages/Billing';
 import BillList from '@/pages/Billing/BillList';
 import RealtimeStats from '@/pages/Stats';
 import ProtectedRoute from '@/components/layout/ProtectedRoute';
+import ErrorBoundary from '@/components/layout/ErrorBoundary';
 import { useAuth } from '@/hooks/useAuth';
 
 const AppContent: React.FC = () => {
@@ -30,9 +31,30 @@ const AppContent: React.FC = () => {
       <Route path="/login" element={<LoginPage />} />
       <Route element={<AppLayout />}>
         <Route path="/" element={<DashboardPage />} />
-        <Route path="/parkings" element={<ParkingListPage />} />
-        <Route path="/parkings/:id" element={<ParkingListPage />} />
-        <Route path="/parking-spaces" element={<SpaceListPage />} />
+        <Route
+          path="/parkings"
+          element={
+            <ProtectedRoute allowedRoles={['superadmin', 'admin', 'operator']}>
+              <ParkingListPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/parkings/:id"
+          element={
+            <ProtectedRoute allowedRoles={['superadmin', 'admin', 'operator']}>
+              <ParkingListPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/parking-spaces"
+          element={
+            <ProtectedRoute allowedRoles={['superadmin', 'admin', 'operator']}>
+              <SpaceListPage />
+            </ProtectedRoute>
+          }
+        />
         <Route path="/vehicle-records" element={<VehicleRecordList />} />
         <Route
           path="/billing-rules"
@@ -65,7 +87,11 @@ const AppContent: React.FC = () => {
 };
 
 const App: React.FC = () => {
-  return <AppContent />;
+  return (
+    <ErrorBoundary>
+      <AppContent />
+    </ErrorBoundary>
+  );
 };
 
 export default App;

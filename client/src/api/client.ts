@@ -10,9 +10,9 @@ const apiClient: AxiosInstance = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
-// 标志：是否正在刷新 Token
+// 标志：是否正在刷新 Token（单线程安全：JS 事件循环保证同步代码原子性）
 let isRefreshing = false;
-// 等待刷新完成的请求队列
+// 等待刷新完成的请求队列（遭遇 401 时排队，避免并发多个刷新请求）
 let pendingQueue: Array<{ resolve: (token: string) => void; reject: (err: unknown) => void }> = [];
 
 // 消费队列
