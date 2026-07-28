@@ -1,6 +1,6 @@
 # docker-compose.yml - 本地开发与测试环境
+# 使用外部 Redis，仅本地启动 PostgreSQL 和 MinIO
 # 一键启动: docker compose up -d
-# 包含: API + PostgreSQL + Redis + MinIO
 
 version: '3.8'
 
@@ -16,28 +16,30 @@ services:
     environment:
       - NODE_ENV=development
       - PORT=3000
-      - DATABASE_URL=postgresql://parking:parking123@postgres:5432/parking_db
-      - REDIS_URL=redis://redis:6379
-      - JWT_SECRET=dev-jest-secret-key-please-change-in-production
-      - CORS_ORIGINS=http://localhost:5173,http://localhost:3000
-      - SUPABASE_URL=http://localhost:54321
-      - SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZXYiLCJyb2xlIjoiYW5vbiIsImV4cCI6MTk4Mzg3NTQ2Mn0.Lr7ZhG06RFjtMJ遼
-      - SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZXYiLCJyb2xlIjoic2VydmljZV9yb2xlIiwiZXhwIjoxOTgzODc1NDYyfQ.X abbr
+      # 使用外部 Redis
+      - REDIS_URL=redis://:ipaking@545@host.docker.internal:6399
+      # 使用外部 Supabase
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      - DATABASE_URL=${DATABASE_URL}
+      - JWT_SECRET=${JWT_SECRET:-smart-parking-jwt-secret-2024-dev-only}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:5173}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./server/src:/app/src
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
     restart: unless-stopped
     networks:
       - parking-network
 
-  # ==================== PostgreSQL ====================
+  # ==================== PostgreSQL (本地开发可选) ====================
+  # 生产环境使用 Supabase，本地开发可选择性启动本地 PG
   postgres:
     image: postgres:15-alpine
     container_name: parking-postgres
+    profiles:
+      - local-db  # 仅当指定 profile 时启动: docker compose --profile local-db up -d
     ports:
       - "5432:5432"
     environment:
@@ -46,52 +48,12 @@ services:
       POSTGRES_PASSWORD: parking123
     volumes:
       - postgres-data:/var/lib/postgresql/data
-      - ./scripts/db/init.sql:/docker-entrypoint-initdb.d/01-init.sql
+      - ./supabase/migrations:/docker-entrypoint-initdb.d
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U parking"]
       interval: 10s
       timeout: 5s
       retries: 5
-    restart: unless-stopped
-    networks:
-      - parking-network
-
-  # ==================== Redis ====================
-  redis:
-    image: redis:7-alpine
-    container_name: parking-redis
-    ports:
-      - "6379:6379"
-    command: redis-server --appendonly yes --maxmemory 256mb
-    volumes:
-      - redis-data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-    restart: unless-stopped
-    networks:
-      - parking-network
-
-  # ==================== MinIO (文件存储) ====================
-  minio:
-    image: minio/minio:latest
-    container_name: parking-minio
-    ports:
-      - "9000:9000"
-      - "9001:9001"
-    environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin123
-    command: server /data --console-address ":9001"
-    volumes:
-      - minio-data:/data
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
-      interval: 30s
-      timeout: 20s
-      retries: 3
     restart: unless-stopped
     networks:
       - parking-network
@@ -121,5 +83,3 @@ networks:
 # ==================== 卷 ====================
 volumes:
   postgres-data:
-  redis-data:
-  minio-data:

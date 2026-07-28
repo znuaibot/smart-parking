@@ -8,11 +8,11 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│ 前端 (React + Ant Design)                                   │
+│ 前端 (React + Ant Design + Vite)                            │
 ├─────────────────────────────────────────────────────────────┤
 │ 后端 (Node.js + Express + TypeScript)                       │
 ├─────────────────────────────────────────────────────────────┤
-│ 数据库 (Supabase PostgreSQL + Redis 缓存)                   │
+│ 数据库 (Supabase PostgreSQL + 外部 Redis)                   │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -20,10 +20,18 @@
 
 ### 前置要求
 - Node.js >= 20
-- Docker Desktop (用于本地数据库)
-- Supabase 账号 (免费计划即可)
+- Docker Desktop (可选，用于本地 Nginx)
+- Supabase 账号或项目
+- Redis 服务（或使用外部 Redis）
 
-### 本地开发
+### 外部依赖
+
+| 服务 | 地址 | 说明 |
+|------|------|------|
+| Redis | 120.26.109.126:6399 | 已测试连接成功 |
+| Supabase | aws-0-ap-southeast-2.pooler.supabase.com | 需配置密码 |
+
+### 本地开发步骤
 
 ```bash
 # 1. 克隆仓库
@@ -35,22 +43,27 @@ npm install
 
 # 3. 配置环境变量
 cp .env.example .env.local
-# 编辑 .env.local 填入你的 Supabase 配置
+# 编辑 .env.local，填入：
+#   - SUPABASE_PASSWORD (从 Supabase Dashboard 获取)
+#   - SUPABASE_ANON_KEY
+#   - SUPABASE_SERVICE_ROLE_KEY
+#   - SUPABASE_JWT_SECRET
 
-# 4. 启动数据库
-docker compose up -d postgres redis
-
-# 5. 运行数据库迁移
-npm run db:migrate
-
-# 6. 导入种子数据
-npm run db:seed
-
-# 7. 启动后端
+# 4. 启动后端 (连接外部 Redis 和 Supabase)
 npm run dev:api
 
-# 8. 启动前端 (另一个终端)
+# 5. 启动前端 (另一个终端)
 npm run dev:client
+```
+
+### 使用 Docker Compose (可选)
+
+```bash
+# 启动 API + Nginx (连接外部 Redis & Supabase)
+docker compose up -d
+
+# 启动包含本地 PostgreSQL (用于本地数据库开发)
+docker compose --profile local-db up -d
 ```
 
 ## 目录结构
@@ -67,35 +80,32 @@ smart-parking/
 │   │   ├── middleware/        # 中间件
 │   │   ├── shared/            # 公共组件
 │   │   ├── modules/           # 业务模块
-│   │   │   ├── auth/          # 认证模块
-│   │   │   ├── parking/       # 车位模块
-│   │   │   ├── vehicle/       # 进出记录模块
-│   │   │   ├── billing/       # 计费模块
-│   │   │   └── stats/         # 统计模块
 │   │   ├── index.ts           # 入口文件
 │   │   └── app.ts             # Express 应用
-│   ├── prisma/                # Prisma 类型定义
-│   └── package.json
-├── client/                    # 前端应用
+│   ├── prisma/                # Prisma Schema
+│   ├── package.json
+│   └── Dockerfile
+├── client/                    # 前端应用 (React)
 │   ├── src/
 │   │   ├── pages/             # 页面
 │   │   ├── components/        # 组件
 │   │   ├── hooks/             # 自定义 Hooks
 │   │   ├── store/             # 状态管理
 │   │   ├── api/               # API 客户端
-│   │   ├── types/             # 类型定义
 │   │   ├── App.tsx            # 路由配置
 │   │   └── main.tsx           # 入口文件
 │   ├── index.html
 │   ├── vite.config.ts
 │   └── package.json
 ├── docs/                      # 文档
-│   ├── api/                   # API 文档
+│   ├── api/                   # API 文档 (OpenAPI)
 │   ├── architecture/          # 架构文档
 │   ├── design/                # 设计文档
 │   └── tasks/                 # 任务分配
 ├── docker-compose.yml         # Docker 编排
 ├── nginx/                     # Nginx 配置
+├── .env.example               # 环境变量模板
+├── .env.local                 # 本地实际配置 (gitignored)
 └── .github/workflows/         # CI/CD
 ```
 
@@ -103,25 +113,49 @@ smart-parking/
 
 | 模块 | 路径 | 说明 |
 |------|------|------|
-| 认证 | server/src/modules/auth/ | 用户登录、Token 管理、权限控制 |
-| 车位 | server/src/modules/parking/ | 停车场/车位 CRUD、状态管理 |
-| 进出 | server/src/modules/vehicle/ | 入场记录、出场匹配、车牌识别 |
+| 认证 | server/src/modules/auth/ | 用户登录、Token 管理、RBAC 权限 |
+| 车位 | server/src/modules/parking/ | 停车场/车位 CRUD、乐观锁状态管理 |
+| 进出 | server/src/modules/vehicle/ | 入场记录、出场匹配、LPR 车牌识别 |
 | 计费 | server/src/modules/billing/ | 计费规则、账单生成、支付对接 |
-| 统计 | server/src/modules/stats/ | 实时统计、报表生成 |
+| 统计 | server/src/modules/stats/ | 实时统计、日报周报月报 |
 
-## API 文档
+## 连接信息
 
-详见 [docs/api/openapi.yaml](./docs/api/openapi.yaml)
+### Redis
+```
+Host: 120.26.109.126
+Port: 6399
+Password: ipaking@545
+状态: ✅ 已测试连接成功
+```
 
-交互式文档启动后访问: http://localhost:3000/api-docs
+### Supabase (PostgreSQL)
+```
+Host: aws-0-ap-southeast-2.pooler.supabase.com
+Port: 6543
+Database: postgres
+User: postgres.vadlhadksuzmdonnpfke
+区域: 悉尼 (ap-southeast-2)
+```
+
+> 注: Supabase 密码需从 Dashboard 获取：
+> https://supabase.com/dashboard/project/_/settings/database
 
 ## 开发文档
 
 - [架构设计](./docs/architecture/overview.md)
 - [数据库设计](./docs/design/database.md)
 - [代码规范](./docs/design/code-standards.md)
-- [任务分配](./docs/tasks/sprint-1.md)
+- [API 规范](./docs/api/openapi.yaml)
+- [任务分配](./docs/tasks/BRIEFING.md)
 - [架构评审流程](./docs/architecture/review-process.md)
+
+## 已安装 Skills
+
+| Skill | 路径 | 用途 |
+|-------|------|------|
+| supabase | ~/.meituan-catpaw/48840449/skills/supabase/ | Supabase 全流程开发指导 |
+| supabase-postgres-best-practices | ~/.meituan-catpaw/48840449/skills/supabase-postgres-best-practices/ | PostgreSQL 最佳实践 |
 
 ## 贡献指南
 
