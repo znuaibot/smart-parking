@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { Card, Row, Col, Typography, Progress, message, Statistic, Space } from 'antd';
-import { CarOutlined, TeamOutlined, DollarOutlined, RiseOutlined } from '@ant-design/icons';
+import React, { useState, useEffect } from 'react';
+import { Card, Row, Col, Typography, Progress, message, Statistic, Space, Alert } from 'antd';
+import { CarOutlined, TeamOutlined, DollarOutlined, RiseOutlined, ReloadOutlined } from '@ant-design/icons';
+import { useQuery } from 'react-query';
 import ReactECharts from 'echarts-for-react';
 import AvailabilityCard from '@/components/stats/AvailabilityCard';
 import { parkingApi } from '@/api/parking';
@@ -13,44 +14,61 @@ const { Title, Text } = Typography;
 
 const DashboardPage: React.FC = () => {
   const { user } = useAuth();
-  const [loading, setLoading] = useState(false);
-  const [parkings, setParkings] = useState<Parking[]>([]);
-  const [stats, setStats] = useState<RealtimeStats | null>(null);
+  const [lastUpdated, setLastUpdated] = useState(dayjs());
+  const [statsError, setStatsError] = useState<string | null>(null);
 
-  const fetchData = useCallback(async () => {
-    try {
+  // 使用 React Query 管理停车场列表数据（带缓存）
+  const {
+    data: parkings = [],
+    isLoading: loading,
+    refetch: refetchParkings,
+  } = useQuery<Parking[]>(
+    'parkings-list',
+    async () => {
       const res = await parkingApi.getList({ page: 1, pageSize: 100 });
-      setParkings(res.data.list);
-    } catch {
-      message.error('获取数据失败');
+      return res.data.list;
+    },
+    {
+      onSuccess: () => setLastUpdated(dayjs()),
+      onError: (err: unknown) => {
+        const axiosError = err as { response?: { data?: { message?: string } } };
+        const msg = axiosError.response?.data?.message || '获取停车场数据失败';
+        message.error(msg);
+      },
     }
-  }, []);
+  );
 
-  const fetchStats = useCallback(async (parkingId: string) => {
-    try {
-      const res = await statsApi.getRealtime(parkingId);
-      setStats(res.data);
-    } catch {
-      // Stats may not be available yet, silent fail
+  // 获取第一个停车场的实时统计（安全校验：从已授权的列表中选取）
+  const firstParkingId = parkings.length > 0 ? parkings[0].id : '';
+
+  const { data: stats, refetch: refetchStats } = useQuery<RealtimeStats | null>(
+    ['realtime-stats', firstParkingId],
+    async () => {
+      if (!firstParkingId) return null;
+      const res = await statsApi.getRealtime(firstParkingId);
+      return res.data;
+    },
+    {
+      enabled: !!firstParkingId,
+      onError: (err: unknown) => {
+        const axiosError = err as { response?: { data?: { message?: string } } };
+        const msg = axiosError.response?.data?.message || '获取实时统计数据失败';
+        setStatsError(msg);
+      },
+      onSuccess: () => setStatsError(null),
     }
-  }, []);
-
-  useEffect(() => {
-    setLoading(true);
-    fetchData().finally(() => setLoading(false));
-  }, [fetchData]);
+  );
 
   // Auto refresh every 30 seconds
   useEffect(() => {
     const interval = setInterval(() => {
-      fetchData();
-      const savedParkingId = localStorage.getItem('currentParkingId');
-      if (savedParkingId) {
-        fetchStats(savedParkingId);
+      refetchParkings();
+      if (firstParkingId) {
+        refetchStats();
       }
     }, 30000);
     return () => clearInterval(interval);
-  }, [fetchData, fetchStats]);
+  }, [refetchParkings, refetchStats, firstParkingId]);
 
   // Compute aggregate data
   const totalSpaces = parkings.reduce((sum, p) => sum + p.totalSpaces, 0);
@@ -95,6 +113,10 @@ const DashboardPage: React.FC = () => {
         ],
       }
     : {};
+
+  const handleRetryStats = () => {
+    refetchStats();
+  };
 
   return (
     <div>
@@ -147,6 +169,25 @@ const DashboardPage: React.FC = () => {
         </Col>
       </Row>
 
+      {/* Stats Error Alert */}
+      {statsError && (
+        <Alert
+          type="warning"
+          showIcon
+          message="统计数据加载失败"
+          description={statsError}
+          action={
+            <ReloadOutlined
+              onClick={handleRetryStats}
+              style={{ cursor: 'pointer', color: '#9a6b4a' }}
+            />
+          }
+          closable
+          onClose={() => setStatsError(null)}
+          style={{ marginBottom: 16 }}
+        />
+      )}
+
       {/* Availability + Chart */}
       <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
         <Col xs={24} lg={8}>
@@ -187,7 +228,7 @@ const DashboardPage: React.FC = () => {
         loading={loading}
         extra={
           <Text type="secondary" style={{ fontSize: 12 }}>
-            最后更新: {dayjs().format('HH:mm:ss')}
+            最后更新: {lastUpdated.format('HH:mm:ss')}
           </Text>
         }
       >
