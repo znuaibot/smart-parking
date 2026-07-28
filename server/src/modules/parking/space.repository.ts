@@ -116,20 +116,55 @@ export class SpaceRepository {
   }
 
   /**
-   * 批量创建车位
+   * 批量创建车位（原子操作 + 编码冲突预校验）
+   * P0 修复：使用数据库事务函数，预校验编码冲突，保证原子性
+   * 
+   * @param parkingId 停车场 ID
+   * @param spaces 车位数组 [{code, zone?, floor?, space_type?}]
    */
-  async batchCreate(spaces: Omit<ParkingSpace, 'id' | 'created_at' | 'updated_at'>[]): Promise<ParkingSpace[]> {
-    const { data, error } = await supabase
-      .from(this.tableName)
-      .insert(spaces)
-      .select();
+  async batchCreate(
+    parkingId: string,
+    spaces: Array<{ code: string; zone?: string | null; floor?: number; space_type?: SpaceType }>,
+  ): Promise<{ created: number; results: ParkingSpace[] }> {
+    // 输入校验
+    if (!spaces || spaces.length === 0) {
+      throw new Error('车位列表不能为空');
+    }
+    if (spaces.length > 1000) {
+      throw new Error('单次批量创建不能超过 1000 个车位');
+    }
+
+    // 转为 JSONB 数组传给 RPC
+    const spacesJson = spaces.map(s => ({
+      code: s.code,
+      zone: s.zone || null,
+      floor: s.floor || 1,
+      space_type: s.space_type || 'normal',
+    }));
+
+    const { data, error } = await supabase.rpc('batch_create_spaces', {
+      p_parking_id: parkingId,
+      p_spaces: spacesJson as any,
+    });
 
     if (error) {
-      logger.error('Failed to batch create spaces', { error: error.message, count: spaces.length });
+      logger.error('Failed to batch create spaces', { error: error.message, parkingId, count: spaces.length });
       throw error;
     }
 
-    return data as ParkingSpace[];
+    const result = data as any;
+
+    // 查询创建的车位返回
+    const { data: createdSpaces } = await supabase
+      .from(this.tableName)
+      .select('*')
+      .eq('parking_id', parkingId)
+      .order('code', { ascending: true });
+
+    return {
+      created: result?.created_count || 0,
+      results: (createdSpaces || []) as ParkingSpace[],
+    };
   }
 
   /**
@@ -171,8 +206,8 @@ export class SpaceRepository {
   }
 
   /**
-   * 更新车位状态（带乐观锁）
-   * 使用原生 SQL 实现严格的乐观锁
+   * 乐观锁更新车位状态（使用数据库 RPC 实现安全的 CAS 操作）
+   * P0 修复：使用预编译的 PostgreSQL 函数，避免动态 SQL 注入风险
    */
   async updateStatusAtomic(
     id: string,
@@ -180,41 +215,32 @@ export class SpaceRepository {
     expectedStatus: SpaceStatus,
     updates?: { currentPlate?: string | null; currentEntryId?: string | null },
   ): Promise<ParkingSpace | null> {
-    // 构建 SET 子句
-    const setClauses = ['status = $1', 'updated_at = NOW()'];
-    const params: any[] = [newStatus];
-    let paramIndex = 2;
-
-    if (updates?.currentPlate !== undefined) {
-      setClauses.push(`current_plate = $${paramIndex++}`);
-      params.push(updates.currentPlate);
-    }
-    if (updates?.currentEntryId !== undefined) {
-      setClauses.push(`current_entry_id = $${paramIndex++}`);
-      params.push(updates.currentEntryId);
-    }
-
-    params.push(id, expectedStatus);
-
-    const sql = `
-      UPDATE parking_spaces 
-      SET ${setClauses.join(', ')}
-      WHERE id = $${paramIndex++} AND status = $${paramIndex}
-      RETURNING *
-    `;
-
-    const { data, error } = await supabase.rpc('exec_raw_sql', { query: sql, params });
+    const { data, error } = await supabase.rpc('update_space_status_optimistic', {
+      p_space_id: id,
+      p_expected_status: expectedStatus,
+      p_new_status: newStatus,
+      p_current_plate: updates?.currentPlate ?? null,
+      p_current_entry_id: updates?.currentEntryId ?? null,
+    });
 
     if (error) {
       logger.error('Failed to update space status atomically', { error: error.message, id });
       throw error;
     }
 
-    if (!data || (Array.isArray(data) && data.length === 0)) {
-      return null; // 乐观锁冲突
+    // 解析 RPC 返回的 JSON 结果
+    if (!data) {
+      return null;
     }
 
-    return (Array.isArray(data) ? data[0] : data) as ParkingSpace;
+    const result = data as any;
+    if (result.success === false) {
+      // 乐观锁冲突
+      return null;
+    }
+
+    // 更新成功后，重新查询以获取完整的车位信息
+    return this.findById(id);
   }
 
   /**

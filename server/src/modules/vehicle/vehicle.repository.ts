@@ -191,7 +191,57 @@ export class VehicleRepository {
   }
 
   /**
+   * 原子化车辆出场处理（创建账单 + 更新记录 + 释放车位）
+   * P0 修复：使用数据库事务函数保证原子性，避免重复计费
+   * 
+   * @param params 出场参数
+   * @returns { billId, durationMinutes, fee, actualFee, exitTime, spaceReleased }
+   */
+  async processExitAtomic(params: {
+    recordId: string;
+    exitTime?: string;
+    exitGateId?: string;
+    exitImageUrl?: string;
+    operatorId?: string;
+  }): Promise<{
+    billId: string;
+    durationMinutes: number;
+    fee: number;
+    actualFee: number;
+    exitTime: string;
+    spaceReleased: boolean;
+  }> {
+    const { data, error } = await supabase.rpc('process_vehicle_exit', {
+      p_record_id: params.recordId,
+      p_exit_time: params.exitTime || new Date().toISOString(),
+      p_exit_gate_id: params.exitGateId || null,
+      p_exit_image_url: params.exitImageUrl || null,
+      p_operator_id: params.operatorId || null,
+    });
+
+    if (error) {
+      logger.error('Failed to process vehicle exit atomically', { error: error.message, params });
+      throw error;
+    }
+
+    if (!data) {
+      throw new Error('出场处理返回空结果');
+    }
+
+    const result = data as any;
+    return {
+      billId: result.bill_id,
+      durationMinutes: result.duration_minutes,
+      fee: result.fee,
+      actualFee: result.actual_fee,
+      exitTime: result.exit_time,
+      spaceReleased: result.space_released,
+    };
+  }
+
+  /**
    * 更新记录为出场状态
+   * @deprecated 请使用 processExitAtomic 代替（P0 原子性修复）
    */
   async updateToExited(
     id: string,
@@ -318,27 +368,6 @@ export class VehicleRepository {
     }
 
     return data as Bill;
-  }
-
-  /**
-   * 根据入场记录 ID 查找关联的车位
-   */
-  async findSpaceByEntryId(entryId: string): Promise<{ id: string; code: string } | null> {
-    const { data, error } = await supabase
-      .from('parking_spaces')
-      .select('id, code')
-      .eq('current_entry_id', entryId)
-      .single();
-
-    if (error) {
-      if (error.code === 'PGRST116') {
-        return null;
-      }
-      logger.error('Failed to find space by entry id', { error: error.message, entryId });
-      throw error;
-    }
-
-    return data;
   }
 }
 

@@ -1,8 +1,8 @@
 // 车辆进出模块 - 业务逻辑层
+// P0 修复：出场流程原子化、移除未使用的冗余方法
 import { vehicleRepository, VehicleEntryRecord, Bill } from './vehicle.repository.js';
 import { lprService, LPRResult } from './lpr.service.js';
 import { parkingRepository } from '../parking/parking.repository.js';
-import { spaceService } from '../parking/space.service.js';
 import { VehicleEntryDTO, VehicleExitDTO, ListVehicleRecordsQuery, VehicleOngoingQuery } from './vehicle.dto.js';
 import { NotFoundError, ConflictError } from '../../shared/types/errors.js';
 import { logger } from '../../shared/utils/logger.js';
@@ -70,57 +70,42 @@ export class VehicleService {
   }
 
   /**
-   * 记录车辆出场
-   * 1. 查找同车牌的 parked 记录
-   * 2. 计算停车时长
-   * 3. 计算费用
-   * 4. 创建待支付账单
-   * 5. 更新记录状态为 exited
-   * 6. 触发器释放车位
+   * 记录车辆出场（原子化操作）
+   * P0 修复：使用数据库事务函数保证创建账单+更新记录+释放车位的原子性
+   * 
+   * 1. 查找同车牌的 parked 记录（防重复出场）
+   * 2. 调用原子化 RPC 处理出场（创建账单 + 更新记录 + 释放车位）
    */
   async recordExit(dto: VehicleExitDTO): Promise<{ record: VehicleEntryRecord; bill: Bill }> {
-    // 1. 查找在场记录
+    // 1. 查找在场记录（先查询用于返回和校验）
     const record = await vehicleRepository.findOngoingByPlate(dto.plateNumber, dto.parkingId);
     if (!record) {
       throw new NotFoundError(`未找到车牌 ${dto.plateNumber} 的在场记录`);
     }
 
-    // 2. 计算停车时长
-    const entryTime = new Date(record.entry_time);
-    const exitTime = new Date();
-    const durationMs = exitTime.getTime() - entryTime.getTime();
-    const durationMinutes = Math.ceil(durationMs / (1000 * 60));
-
-    // 3. 计算费用（简化版，实际应根据计费规则）
-    const fee = this.calculateFee(durationMinutes, record.vehicle_type);
-
-    // 4. 创建账单
-    const bill = await vehicleRepository.createBill({
+    // 2. 使用原子化 RPC 处理出场（创建账单、更新记录、释放车位在同一事务中）
+    // 如果此步骤失败（如已有出场记录），数据库会回滚所有操作
+    const result = await vehicleRepository.processExitAtomic({
       recordId: record.id,
-      parkingId: record.parking_id,
-      plateNumber: record.plate_number,
-      durationMinutes,
-      amount: fee,
-      actualAmount: fee,
+      exitGateId: dto.exitGateId,
+      exitImageUrl: dto.exitImageUrl,
       operatorId: dto.operatorId,
     });
 
-    // 5. 更新记录状态为 exited
-    const updatedRecord = await vehicleRepository.updateToExited(record.id, {
-      exitTime: exitTime.toISOString(),
-      exitGateId: dto.exitGateId,
-      exitImageUrl: dto.exitImageUrl,
-    });
+    // 3. 查询更新后的记录和账单用于返回
+    const updatedRecord = await vehicleRepository.findById(record.id);
+    const bill = await vehicleRepository.findBillByRecordId(record.id);
 
-    // 6. 释放车位（触发器会自动处理，但这里也可以手动触发）
-    // 查找并释放关联的车位
-    await this.releaseSpaceForRecord(record.id);
+    if (!updatedRecord || !bill) {
+      throw new Error('出场处理完成后无法查询到记录或账单');
+    }
 
-    logger.info('Vehicle exit recorded', {
+    logger.info('Vehicle exit recorded (atomic)', {
       recordId: record.id,
       plateNumber: dto.plateNumber,
-      durationMinutes,
-      fee,
+      durationMinutes: result.durationMinutes,
+      fee: result.fee,
+      billId: result.billId,
     });
 
     return { record: updatedRecord, bill };
@@ -162,40 +147,6 @@ export class VehicleService {
       throw new NotFoundError('进出记录', id);
     }
     return record;
-  }
-
-  /**
-   * 计算停车费用（简化版）
-   * 实际项目中应根据计费规则计算
-   */
-  private calculateFee(durationMinutes: number, vehicleType: string): number {
-    // 简化计费逻辑：前15分钟免费，之后每小时5元
-    const freeMinutes = 15;
-    const hourlyRate = 5;
-
-    if (durationMinutes <= freeMinutes) {
-      return 0;
-    }
-
-    const chargeableMinutes = durationMinutes - freeMinutes;
-    const hours = Math.ceil(chargeableMinutes / 60);
-    return hours * hourlyRate;
-  }
-
-  /**
-   * 释放记录关联的车位
-   */
-  private async releaseSpaceForRecord(recordId: string): Promise<void> {
-    try {
-      // 查找关联的车位（通过 current_entry_id）
-      const space = await vehicleRepository.findSpaceByEntryId(recordId);
-      if (space) {
-        await spaceService.releaseSpace(space.id);
-      }
-    } catch (error) {
-      // 车位释放失败不应影响出场流程
-      logger.warn('Failed to release space for record', { recordId, error });
-    }
   }
 }
 
