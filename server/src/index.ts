@@ -10,6 +10,8 @@ import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import { requestId } from './middleware/requestId.js';
 import { authenticate } from './middleware/authenticate.js';
 import { rateLimiter } from './middleware/rateLimiter.js';
+import { performanceMonitor, getPerformanceMetrics } from './middleware/performanceMonitor.js';
+import { swaggerUiHandler, swaggerJsonHandler } from './middleware/swagger.js';
 
 // 路由导入
 import { authRouter } from './modules/auth/auth.routes.js';
@@ -35,6 +37,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use(requestId);
 app.use(morgan(config.isTest ? 'dev' : 'combined'));
 app.use(rateLimiter);
+app.use(performanceMonitor);
 
 // ==================== 健康检查 ====================
 app.get('/health', (req, res) => {
@@ -50,6 +53,15 @@ app.get('/ready', async (req, res) => {
   // TODO: 检查数据库连接
   res.json({ status: 'ready' });
 });
+
+// 性能监控指标端点
+app.get('/metrics', (_req, res) => {
+  res.json(getPerformanceMetrics());
+});
+
+// API 文档端点
+app.get('/api-docs', swaggerUiHandler);
+app.get('/api-docs.json', swaggerJsonHandler);
 
 // ==================== API 路由 ====================
 const API_PREFIX = '/api/v1';
