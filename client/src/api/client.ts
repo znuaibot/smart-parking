@@ -2,6 +2,7 @@ import axios from 'axios';
 import type { AxiosInstance, InternalAxiosRequestConfig, AxiosResponse } from 'axios';
 import { message } from 'antd';
 import { authApi } from './auth';
+import { useAuthStore } from '@/store/authStore';
 
 const apiClient: AxiosInstance = axios.create({
   baseURL: import.meta.env.VITE_API_URL || '/api/v1',
@@ -29,8 +30,6 @@ const processQueue = (token: string | null, err: unknown = null) => {
 // 请求拦截器 - 添加 Token（从 authStore 同步）
 apiClient.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
-    // 动态从 store 获取最新 Token
-    const { useAuthStore } = require('@/store/authStore');
     const token = useAuthStore.getState().accessToken;
     if (token && config.headers) {
       config.headers.Authorization = `Bearer ${token}`;
@@ -74,9 +73,12 @@ apiClient.interceptors.response.use(
         const { accessToken, refreshToken: newRefreshToken } = res.data;
 
         // 更新 store 和 localStorage
-        const { useAuthStore } = require('@/store/authStore');
         useAuthStore.getState().setAccessToken(accessToken);
         localStorage.setItem('refreshToken', newRefreshToken);
+
+        // 先清除 isRefreshing 标志，再消费队列
+        // 确保队列中的请求执行时如果再次遇到 401，能正常进入新的刷新流程
+        isRefreshing = false;
 
         // 消费队列中的请求
         processQueue(accessToken);
@@ -85,15 +87,14 @@ apiClient.interceptors.response.use(
         originalRequest.headers!.Authorization = `Bearer ${accessToken}`;
         return apiClient(originalRequest);
       } catch (refreshErr) {
-        // 刷新失败，登出并跳转
+        // 刷新失败，先清除标志
+        isRefreshing = false;
+        // 消费队列（传递错误）
         processQueue(null, refreshErr);
-        const { useAuthStore } = require('@/store/authStore');
         useAuthStore.getState().notifyLogout();
         // 使用软跳转（通知路由）
         window.dispatchEvent(new CustomEvent('auth:logout'));
         return Promise.reject(refreshErr);
-      } finally {
-        isRefreshing = false;
       }
     }
 
