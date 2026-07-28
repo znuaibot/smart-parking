@@ -34,8 +34,22 @@ const AppContent: React.FC = () => {
         <Route path="/parkings/:id" element={<ParkingListPage />} />
         <Route path="/parking-spaces" element={<SpaceListPage />} />
         <Route path="/vehicle-records" element={<VehicleRecordList />} />
-        <Route path="/billing-rules" element={<BillingRuleList />} />
-        <Route path="/bills" element={<BillList />} />
+        <Route
+          path="/billing-rules"
+          element={
+            <ProtectedRoute allowedRoles={['superadmin', 'admin']}>
+              <BillingRuleList />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/bills"
+          element={
+            <ProtectedRoute allowedRoles={['superadmin', 'admin', 'cashier']}>
+              <BillList />
+            </ProtectedRoute>
+          }
+        />
         <Route
           path="/stats/realtime"
           element={
