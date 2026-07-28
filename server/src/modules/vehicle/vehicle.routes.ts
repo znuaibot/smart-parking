@@ -1,29 +1,26 @@
 // 车辆进出模块路由
+// 修复：分离路由以消除路径重复（如 /vehicle-entry/entry → /vehicle-entry）
 import { Router } from 'express';
+import { vehicleController } from './vehicle.controller.js';
+import { authenticate, requireRole } from '../../middleware/authenticate.js';
 
-export const vehicleRouter = Router();
+// 车辆入场路由 - 挂载到 /api/v1/vehicle-entry
+export const vehicleEntryRouter = Router();
+vehicleEntryRouter.use(authenticate);
+vehicleEntryRouter.post('/', requireRole('superadmin', 'admin', 'operator'), (req, res, next) => vehicleController.recordEntry(req, res, next));
 
-// POST /api/v1/vehicle-entry - 车辆入场
-vehicleRouter.post('/entry', (req, res) => {
-  res.json({ message: 'vehicle entry - 待实现' });
-});
+// 车辆出场路由 - 挂载到 /api/v1/vehicle-exit
+export const vehicleExitRouter = Router();
+vehicleExitRouter.use(authenticate);
+vehicleExitRouter.post('/', requireRole('superadmin', 'admin', 'operator'), (req, res, next) => vehicleController.recordExit(req, res, next));
 
-// POST /api/v1/vehicle-exit - 车辆出场
-vehicleRouter.post('/exit', (req, res) => {
-  res.json({ message: 'vehicle exit - 待实现' });
-});
+// 进出记录路由 - 挂载到 /api/v1/vehicle-records
+export const vehicleRecordRouter = Router();
+vehicleRecordRouter.use(authenticate);
+vehicleRecordRouter.get('/', (req, res, next) => vehicleController.listRecords(req, res, next));
+vehicleRecordRouter.get('/:id', (req, res, next) => vehicleController.getRecordById(req, res, next));
 
-// GET /api/v1/vehicle-records - 进出记录列表
-vehicleRouter.get('/records', (req, res) => {
-  res.json({ message: 'vehicle records - 待实现' });
-});
-
-// GET /api/v1/vehicle-records/:id - 进出记录详情
-vehicleRouter.get('/records/:id', (req, res) => {
-  res.json({ message: 'record detail - 待实现' });
-});
-
-// GET /api/v1/vehicles/:plate/ongoing - 查询在场车辆
-vehicleRouter.get('/:plate/ongoing', (req, res) => {
-  res.json({ message: 'ongoing vehicle - 待实现' });
-});
+// 在场车辆查询路由 - 挂载到 /api/v1/vehicles
+export const vehicleOngoingRouter = Router();
+vehicleOngoingRouter.use(authenticate);
+vehicleOngoingRouter.get('/:plate/ongoing', requireRole('superadmin', 'admin', 'operator'), (req, res, next) => vehicleController.getOngoing(req, res, next));
