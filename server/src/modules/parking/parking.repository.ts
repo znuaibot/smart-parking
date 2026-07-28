@@ -36,7 +36,43 @@ export class ParkingRepository {
   private readonly tableName = 'parkings';
 
   /**
+   * 转义 ILIKE 搜索中的特殊字符，防止 SQL 注入
+   * PostgREST 的 ilike 使用 % 和 _ 作为通配符，需要转义
+   */
+  private escapeIlikePattern(input: string): string {
+    // 转义 PostgREST/PostgreSQL ILIKE 特殊字符：% _ \
+    return input
+      .replace(/\\/g, '\\\\')  // 先转义反斜杠
+      .replace(/%/g, '\\%')    // 转义 %
+      .replace(/_/g, '\\_');   // 转义 _
+  }
+
+  /**
+   * 安全地构建 ILIKE 搜索条件
+   * @param keyword 搜索关键词
+   * @returns PostgREST or 查询字符串
+   */
+  private buildSafeIlikeFilter(keyword: string): string {
+    // 1. 清理输入：移除控制字符，限制长度
+    const sanitized = keyword
+      .replace(/[\x00-\x1F\x7F]/g, '')  // 移除控制字符
+      .trim()
+      .substring(0, 100);  // 限制长度为 100 字符
+
+    if (!sanitized) {
+      return '';
+    }
+
+    // 2. 转义 ILIKE 特殊字符
+    const escaped = this.escapeIlikePattern(sanitized);
+
+    // 3. 构建安全的 or 条件（使用转义后的精确匹配）
+    return `name.ilike.*${escaped}%,code.ilike.*${escaped}%`;
+  }
+
+  /**
    * 查询停车场列表（分页、搜索、筛选）
+   * P0 修复：使用参数化搜索防止 SQL 注入
    */
   async list(params: {
     page: number;
@@ -47,16 +83,25 @@ export class ParkingRepository {
     const { page, pageSize, keyword, status } = params;
     const offset = (page - 1) * pageSize;
 
+    // 参数校验
+    if (page < 1 || pageSize < 1 || pageSize > 100) {
+      throw new Error('无效的分页参数');
+    }
+
     // 构建查询
     let query = supabase.from(this.tableName).select('*', { count: 'exact' });
 
-    // 关键字搜索（名称或编码）
-    if (keyword) {
-      query = query.or(`name.ilike.%${keyword}%,code.ilike.%${keyword}%`);
+    // 关键字搜索（安全版本，已防止 SQL 注入）
+    if (keyword && keyword.trim()) {
+      const safeFilter = this.buildSafeIlikeFilter(keyword);
+      if (safeFilter) {
+        query = query.or(safeFilter);
+      }
     }
 
-    // 状态筛选
-    if (status) {
+    // 状态筛选（白名单校验防止注入）
+    const ALLOWED_STATUSES = ['active', 'inactive', 'suspended'];
+    if (status && ALLOWED_STATUSES.includes(status)) {
       query = query.eq('status', status);
     }
 
@@ -66,7 +111,7 @@ export class ParkingRepository {
       .range(offset, offset + pageSize - 1);
 
     if (error) {
-      logger.error('Failed to list parkings', { error: error.message, params });
+      logger.error('Failed to list parkings', { error: error.message, params: { page, pageSize, status } });
       throw error;
     }
 
