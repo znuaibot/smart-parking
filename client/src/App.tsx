@@ -11,11 +11,9 @@ import BillList from '@/pages/Billing/BillList';
 import RealtimeStats from '@/pages/Stats';
 import ProtectedRoute from '@/components/layout/ProtectedRoute';
 import ErrorBoundary from '@/components/layout/ErrorBoundary';
-import { useAuth } from '@/hooks/useAuth';
 
 const AppContent: React.FC = () => {
   const navigate = useNavigate();
-  const { isAuthenticated } = useAuth();
 
   // 监听 401 软跳转事件
   React.useEffect(() => {
