@@ -98,13 +98,15 @@ export async function withRetry<T>(
 
       // 检查是否可重试
       if (attempt < MAX_RETRIES && isRetryableError(error)) {
+        // P2-L 修复：指数退避 + 抖动，避免重试风暴
+        const delay = Math.min(1000, Math.pow(2, attempt) * 100 + Math.random() * 50);
         logger.warn('Retryable error, retrying...', {
           query: queryName,
           attempt: attempt + 1,
+          delay: `${Math.round(delay)}ms`,
           error: error.message || error.code,
         });
-        // 等待一小段时间后重试
-        await new Promise(resolve => setTimeout(resolve, 100 * (attempt + 1)));
+        await new Promise(resolve => setTimeout(resolve, delay));
         continue;
       }
 

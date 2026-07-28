@@ -11,12 +11,15 @@ const EnvSchema = z.object({
   NODE_ENV: z.enum(['development', 'staging', 'production', 'test']).default('development'),
   PORT: z.coerce.number().default(3000),
   
-  // Supabase
+  // Supabase（@supabase/supabase-js 只需要 URL + Keys，不需要数据库密码）
   SUPABASE_URL: z.string().url(),
   SUPABASE_ANON_KEY: z.string().min(20),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(20),
   SUPABASE_JWT_SECRET: z.string().min(32),
-  SUPABASE_PASSWORD: z.string().optional(),
+  
+  // P1-G 修复：重命名为 DIRECT_DB_PASSWORD，仅用于直连 PostgreSQL 的场景
+  // 若无直连 migrations/批量导入需求，可删除此变量
+  DIRECT_DB_PASSWORD: z.string().optional(),
   
   // Redis (可选)
   REDIS_URL: z.string().url().optional(),
@@ -41,18 +44,7 @@ const EnvSchema = z.object({
 });
 
 // 解析并校验环境变量
-const parsedConfig = EnvSchema.parse(process.env);
-
-// fail-fast: 检查 SUPABASE_PASSWORD 是否存在
-if (!parsedConfig.SUPABASE_PASSWORD) {
-  logger.warn('SUPABASE_PASSWORD is not set. Some features may not work correctly.');
-  // 非生产环境仅警告，生产环境则 fail-fast
-  if (parsedConfig.NODE_ENV === 'production') {
-    throw new Error('FATAL: SUPABASE_PASSWORD is required in production environment');
-  }
-}
-
-export const config = parsedConfig;
+export const config = EnvSchema.parse(process.env);
 
 // 便捷访问器
 export const isDev = config.NODE_ENV === 'development';

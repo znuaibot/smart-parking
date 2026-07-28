@@ -1,8 +1,12 @@
 // 认证服务模块 - 处理登录、登出、Token 刷新等业务逻辑
+// P0-A 修复：从 profiles 表获取真实角色
+// P0-B 修复：Redis Token 黑名单
+// P1-D 修复：banned_until 时间比较
 
 import { supabase } from '../../shared/database/supabase.js';
 import { config } from '../../config/index.js';
 import { logger, logAuthEvent } from '../../shared/utils/logger.js';
+import { RedisTokenBlacklist } from '../../shared/utils/redis.js';
 import {
   InvalidCredentialsError,
   UnauthorizedError,
@@ -10,6 +14,7 @@ import {
   TokenRefreshError,
   AccountDisabledError,
   ValidationError,
+  ForbiddenError,
   SupabaseError,
 } from '../../shared/types/errors.js';
 
@@ -38,6 +43,7 @@ export interface UserProfile {
   displayName?: string;
   avatarUrl?: string;
   phone?: string;
+  parkingId?: string;
   isActive: boolean;
   createdAt: string;
   lastSignInAt?: string;
@@ -48,12 +54,53 @@ export interface LoginResult {
   user: UserProfile;
 }
 
-// ==================== Token 黑名单（生产环境应使用 Redis）====================
-const tokenBlacklist = new Set<string>();
-
 // ==================== AuthService ====================
 
 export class AuthService {
+  private redisBlacklist: RedisTokenBlacklist | null = null;
+
+  private async getRedis(): Promise<RedisTokenBlacklist | null> {
+    if (!this.redisBlacklist) {
+      this.redisBlacklist = await RedisTokenBlacklist.getInstance();
+    }
+    return this.redisBlacklist;
+  }
+
+  /**
+   * 从 profiles 表获取用户角色（P0-A 修复）
+   */
+  private async getProfileFromDB(userId: string): Promise<{
+    role: 'superadmin' | 'admin' | 'operator' | 'cashier';
+    parkingId?: string;
+    isActive: boolean;
+    displayName?: string;
+    avatarUrl?: string;
+    phone?: string;
+  } | null> {
+    const { data: profile, error } = await supabase
+      .from('profiles')
+      .select('role, parking_id, is_active, display_name, avatar_url, phone, email')
+      .eq('id', userId)
+      .single();
+
+    if (error) {
+      logger.error('Failed to fetch profile', { error: error.message, userId });
+      return null;
+    }
+
+    if (!profile) return null;
+
+    return {
+      role: profile.role as 'superadmin' | 'admin' | 'operator' | 'cashier',
+      parkingId: profile.parking_id || undefined,
+      isActive: profile.is_active,
+      email: profile.email || undefined,
+      displayName: profile.display_name || undefined,
+      avatarUrl: profile.avatar_url || undefined,
+      phone: profile.phone || undefined,
+    };
+  }
+
   /**
    * 用户登录
    * @param dto 登录参数
@@ -97,23 +144,33 @@ export class AuthService {
         throw new InvalidCredentialsError();
       }
 
-      // 检查用户是否被禁用
-      if (data.user.banned_until) {
-        throw new AccountDisabledError();
+      // P1-D 修复：banned_until 与当前时间比较
+      const isBanned = data.user.banned_until && new Date(data.user.banned_until) > new Date();
+      if (isBanned) {
+        throw new AccountDisabledError('账号已被封禁至 ' + data.user.banned_until);
       }
 
-      // 获取用户角色信息
-      const userRole = (data.user.user_metadata?.role || 'operator') as UserProfile['role'];
-      const displayName = data.user.user_metadata?.display_name as string | undefined;
+      // P0-A 修复：从 profiles 表获取真实角色信息
+      const profile = await this.getProfileFromDB(data.user.id);
+      if (!profile) {
+        logger.warn('User logged in but no profile found', { userId: data.user.id });
+        throw new ForbiddenError('用户档案不存在，请联系管理员');
+      }
+
+      // 检查 profiles 状态
+      if (!profile.isActive) {
+        throw new AccountDisabledError('账号已被禁用，请联系管理员');
+      }
 
       const userProfile: UserProfile = {
         id: data.user.id,
-        email: data.user.email || email,
-        role: userRole,
-        displayName,
-        avatarUrl: data.user.user_metadata?.avatar_url as string | undefined,
-        phone: data.user.phone || undefined,
-        isActive: !data.user.banned_until,
+        email: profile.email || data.user.email || email,
+        role: profile.role,
+        displayName: profile.displayName,
+        avatarUrl: profile.avatarUrl,
+        phone: profile.phone,
+        parkingId: profile.parkingId,
+        isActive: profile.isActive,
         createdAt: data.user.created_at,
         lastSignInAt: data.user.last_sign_in_at || undefined,
       };
@@ -135,7 +192,8 @@ export class AuthService {
     } catch (error: any) {
       if (error instanceof ValidationError || 
           error instanceof InvalidCredentialsError || 
-          error instanceof AccountDisabledError) {
+          error instanceof AccountDisabledError ||
+          error instanceof ForbiddenError) {
         throw error;
       }
       logger.error('Login failed', { error: error.message, email });
@@ -146,12 +204,20 @@ export class AuthService {
   /**
    * 用户登出
    * @param accessToken 访问令牌
+   * @param refreshToken 刷新令牌（可选，用于同时黑名单）
    * @param userId 用户ID
    */
-  async logout(accessToken: string, userId?: string): Promise<void> {
+  async logout(accessToken: string, refreshToken?: string, userId?: string): Promise<void> {
     try {
-      // 将 Token 加入黑名单
-      tokenBlacklist.add(accessToken);
+      // P0-B 修复：使用 Redis 黑名单，同时黑名单 access + refresh
+      const redis = await this.getRedis();
+      if (redis && redis.isAvailable()) {
+        if (refreshToken) {
+          await redis.blacklistTokenPair(accessToken, refreshToken);
+        } else {
+          await redis.blacklistToken(accessToken);
+        }
+      }
 
       // 调用 Supabase Admin API 使 token 服务端失效
       const { error } = await supabase.auth.admin.signOut(accessToken);
@@ -179,9 +245,10 @@ export class AuthService {
       ]);
     }
 
-    // 检查 refreshToken 是否在黑名单中
-    if (tokenBlacklist.has(refreshToken)) {
-      throw new TokenRefreshError();
+    // P0-B 修复：检查 refreshToken 是否在黑名单中
+    const redis = await this.getRedis();
+    if (redis && redis.isAvailable() && await redis.isBlacklisted(refreshToken)) {
+      throw new TokenRefreshError('刷新令牌已被使用或已过期');
     }
 
     try {
@@ -198,6 +265,11 @@ export class AuthService {
 
       if (!data.session) {
         throw new TokenRefreshError();
+      }
+
+      // P0-B 修复：刷新成功后，旧 refreshToken 立即入黑名单
+      if (redis && redis.isAvailable()) {
+        await redis.blacklistToken(refreshToken, 604800); // 7 天 TTL
       }
 
       logAuthEvent('refresh', { userId: data.user?.id });
@@ -218,50 +290,58 @@ export class AuthService {
   }
 
   /**
-   * 获取当前用户信息
-   * @param accessToken 访问令牌
+   * 获取当前用户信息（P0-A 修复：从 profiles 表获取）
+   * @param userId 用户 ID（从 req.user.id 获取）
    */
-  async getCurrentUser(accessToken: string): Promise<UserProfile> {
-    try {
-      const { data, error } = await supabase.auth.getUser(accessToken);
+  async getCurrentUserById(userId: string): Promise<UserProfile> {
+    // 从 Supabase Auth 获取基础信息
+    const { data: authUser, error: authError } = await supabase.auth.admin.getUserById(userId);
 
-      if (error || !data.user) {
-        if (error?.message?.includes('expired')) {
-          throw new TokenExpiredError();
-        }
-        throw new UnauthorizedError('无效的访问令牌');
-      }
-
-      const user = data.user;
-      const userRole = (user.user_metadata?.role || 'operator') as UserProfile['role'];
-
-      return {
-        id: user.id,
-        email: user.email || '',
-        role: userRole,
-        displayName: user.user_metadata?.display_name as string | undefined,
-        avatarUrl: user.user_metadata?.avatar_url as string | undefined,
-        phone: user.phone || undefined,
-        isActive: !user.banned_until,
-        createdAt: user.created_at,
-        lastSignInAt: user.last_sign_in_at || undefined,
-      };
-    } catch (error: any) {
-      if (error instanceof UnauthorizedError || error instanceof TokenExpiredError) {
-        throw error;
-      }
-      logger.error('Get current user failed', { error: error.message });
-      throw new UnauthorizedError('无法获取用户信息');
+    if (authError || !authUser.user) {
+      throw new UnauthorizedError('用户不存在');
     }
+
+    const user = authUser.user;
+
+    // P1-D 修复：banned_until 与当前时间比较
+    const isBanned = user.banned_until && new Date(user.banned_until) > new Date();
+    if (isBanned) {
+      throw new AccountDisabledError('账号已被封禁');
+    }
+
+    // P0-A 修复：从 profiles 表获取真实角色
+    const profile = await this.getProfileFromDB(userId);
+    if (!profile) {
+      throw new ForbiddenError('用户档案不存在，请联系管理员');
+    }
+
+    if (!profile.isActive) {
+      throw new AccountDisabledError('账号已被禁用，请联系管理员');
+    }
+
+    return {
+      id: user.id,
+      email: user.email || '',
+      role: profile.role,
+      displayName: profile.displayName,
+      avatarUrl: profile.avatarUrl,
+      phone: profile.phone,
+      parkingId: profile.parkingId,
+      isActive: profile.isActive,
+      createdAt: user.created_at,
+      lastSignInAt: user.last_sign_in_at || undefined,
+    };
   }
 
   /**
-   * 验证 Token 并返回用户ID（中间件使用）
+   * 验证 Token 并返回用户信息（中间件使用）
+   * P0-A 修复：从 profiles 表获取角色
    * @param token 访问令牌
    */
-  async verifyToken(token: string): Promise<{ id: string; role: string; email: string }> {
-    // 检查黑名单
-    if (tokenBlacklist.has(token)) {
+  async verifyToken(token: string): Promise<{ id: string; role: string; email: string; parkingId?: string }> {
+    // P0-B 修复：检查 Redis 黑名单
+    const redis = await this.getRedis();
+    if (redis && redis.isAvailable() && await redis.isBlacklisted(token)) {
       throw new UnauthorizedError('令牌已被注销');
     }
 
@@ -275,46 +355,28 @@ export class AuthService {
         throw new UnauthorizedError('无效的访问令牌');
       }
 
+      // P0-A 修复：从 profiles 表获取角色
+      const profile = await this.getProfileFromDB(data.user.id);
+      if (!profile) {
+        throw new ForbiddenError('用户档案不存在');
+      }
+
+      if (!profile.isActive) {
+        throw new AccountDisabledError();
+      }
+
       return {
         id: data.user.id,
-        role: data.user.user_metadata?.role || 'operator',
+        role: profile.role,
         email: data.user.email || '',
+        parkingId: profile.parkingId,
       };
     } catch (error: any) {
-      if (error instanceof UnauthorizedError || error instanceof TokenExpiredError) {
+      if (error instanceof UnauthorizedError || error instanceof TokenExpiredError || error instanceof ForbiddenError) {
         throw error;
       }
       logger.error('Token verification failed', { error: error.message });
       throw new UnauthorizedError('令牌验证失败');
-    }
-  }
-
-  /**
-   * 检查 Token 是否在黑名单中
-   * @param token 令牌
-   */
-  isTokenBlacklisted(token: string): boolean {
-    return tokenBlacklist.has(token);
-  }
-
-  /**
-   * 将 Token 加入黑名单
-   * @param token 令牌
-   */
-  blacklistToken(token: string): void {
-    tokenBlacklist.add(token);
-  }
-
-  /**
-   * 清理过期的黑名单令牌（建议定时任务调用）
-   */
-  cleanupBlacklist(): void {
-    // 简单实现：限制黑名单大小
-    if (tokenBlacklist.size > 10000) {
-      const entries = Array.from(tokenBlacklist);
-      const toRemove = entries.slice(0, entries.length - 5000);
-      toRemove.forEach(token => tokenBlacklist.delete(token));
-      logger.info('Token blacklist cleaned up', { removed: toRemove.length });
     }
   }
 }

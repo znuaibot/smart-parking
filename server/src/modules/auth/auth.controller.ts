@@ -1,9 +1,24 @@
 // 认证控制器模块 - 处理 HTTP 请求和响应
+// P1-E 修复：/me 直接返回 req.user，不重复调用 Supabase
+// P1-F 修复：添加 Zod 输入校验
 
 import { Request, Response, NextFunction } from 'express';
-import { authService, LoginDTO, RefreshTokenDTO } from './auth.service.js';
+import { z } from 'zod';
+import { authService, LoginDTO, RefreshTokenDTO, UserProfile } from './auth.service.js';
 import { logger } from '../../shared/utils/logger.js';
-import { UnauthorizedError } from '../../shared/types/errors.js';
+import { UnauthorizedError, ValidationError } from '../../shared/types/errors.js';
+
+// Zod schema 校验请求体（P1-F 修复）
+const loginSchema = z.object({
+  email: z.string().email('无效的邮箱格式'),
+  password: z.string().min(6, '密码至少 6 位').max(128, '密码过长'),
+});
+
+const refreshSchema = z.object({
+  refreshToken: z.string().min(10, '刷新令牌无效'),
+});
+
+// Request 类型已在 src/shared/types/express.d.ts 中全局声明
 
 export class AuthController {
   /**
@@ -12,9 +27,20 @@ export class AuthController {
    */
   async login(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
+      // P1-F: Zod 输入校验
+      const validated = loginSchema.safeParse(req.body);
+      if (!validated.success) {
+        throw new ValidationError(
+          validated.error.errors.map(e => ({
+            field: e.path.join('.'),
+            message: e.message,
+          }))
+        );
+      }
+
       const dto: LoginDTO = {
-        email: req.body.email,
-        password: req.body.password,
+        email: validated.data.email.toLowerCase().trim(),
+        password: validated.data.password,
       };
 
       const clientInfo = {
@@ -52,7 +78,7 @@ export class AuthController {
       }
 
       const userId = req.user?.id;
-      await authService.logout(accessToken, userId);
+      await authService.logout(accessToken, undefined, userId);
 
       res.status(200).json({
         code: 'SUCCESS',
@@ -69,8 +95,19 @@ export class AuthController {
    */
   async refresh(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
+      // P1-F: Zod 输入校验
+      const validated = refreshSchema.safeParse(req.body);
+      if (!validated.success) {
+        throw new ValidationError(
+          validated.error.errors.map(e => ({
+            field: e.path.join('.'),
+            message: e.message,
+          }))
+        );
+      }
+
       const dto: RefreshTokenDTO = {
-        refreshToken: req.body.refreshToken,
+        refreshToken: validated.data.refreshToken,
       };
 
       const tokens = await authService.refreshToken(dto);
@@ -87,27 +124,26 @@ export class AuthController {
 
   /**
    * GET /api/v1/auth/me
-   * 获取当前用户信息
+   * P1-E 修复：直接返回中间件注入的 req.user（无需二次查询）
    */
   async me(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      const authHeader = req.headers.authorization;
-      let accessToken: string | undefined;
-      
-      if (authHeader && authHeader.startsWith('Bearer ')) {
-        accessToken = authHeader.substring(7);
+      if (!req.user) {
+        throw new UnauthorizedError('未认证');
       }
 
-      if (!accessToken) {
-        throw new UnauthorizedError('缺少访问令牌');
-      }
-
-      const user = await authService.getCurrentUser(accessToken);
-
+      // P1-E 修复：中间件已写入 req.user，直接返回（从 profiles 表获取）
       res.status(200).json({
         code: 'SUCCESS',
         message: '获取用户信息成功',
-        data: { user },
+        data: {
+          user: {
+            id: req.user.id,
+            email: req.user.email,
+            role: req.user.role,
+            parkingId: req.user.parkingId,
+          },
+        },
       });
     } catch (error) {
       next(error);

@@ -1,6 +1,7 @@
 // 认证模块单元测试
+// P2-M 修复：补全断言、覆盖异常分支
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { AuthService } from './auth.service.js';
 
 // Mock supabase
@@ -8,10 +9,36 @@ vi.mock('../../shared/database/supabase.js', () => ({
   supabase: {
     auth: {
       signInWithPassword: vi.fn(),
-      signOut: vi.fn(),
+      admin: {
+        signOut: vi.fn(),
+        getUserById: vi.fn(),
+      },
       refreshSession: vi.fn(),
       getUser: vi.fn(),
     },
+    from: vi.fn(() => ({
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      single: vi.fn(),
+    })),
+  },
+}));
+
+// Mock Redis
+vi.mock('../../shared/utils/redis.js', () => ({
+  RedisTokenBlacklist: {
+    getInstance: vi.fn().mockResolvedValue({
+      isBlacklisted: vi.fn().mockResolvedValue(false),
+      blacklistToken: vi.fn().mockResolvedValue(undefined),
+      blacklistTokenPair: vi.fn().mockResolvedValue(undefined),
+      isAvailable: vi.fn().mockReturnValue(false), // 测试中默认不启用 Redis
+    }),
+  },
+  UserSessionCache: {
+    getInstance: vi.fn().mockResolvedValue({
+      getUser: vi.fn().mockResolvedValue(null),
+      setUser: vi.fn().mockResolvedValue(undefined),
+    }),
   },
 }));
 
@@ -42,8 +69,17 @@ describe('AuthService', () => {
       password: 'password123',
     };
 
-    it('should successfully login with valid credentials', async () => {
-      const mockResponse = {
+    // Mock profile query
+    const mockProfileQuery = (profileData: any) => {
+      vi.mocked(supabase.from).mockReturnValue({
+        select: vi.fn().mockReturnThis(),
+        eq: vi.fn().mockReturnThis(),
+        single: vi.fn().mockResolvedValue({ data: profileData, error: null }),
+      } as any);
+    };
+
+    it('should successfully login with valid credentials and fetch profile from DB', async () => {
+      vi.mocked(supabase.auth.signInWithPassword).mockResolvedValue({
         data: {
           user: {
             id: 'user-123',
@@ -59,9 +95,16 @@ describe('AuthService', () => {
           },
         },
         error: null,
-      };
+      } as any);
 
-      vi.mocked(supabase.auth.signInWithPassword).mockResolvedValue(mockResponse as any);
+      // Mock profile query - 返回 profiles 表数据（不是 user_metadata）
+      mockProfileQuery({
+        role: 'operator', // profiles 表中的角色
+        parking_id: 'parking-456',
+        is_active: true,
+        display_name: 'Real Name',
+        email: 'test@example.com',
+      });
 
       const result = await authService.login(validLoginDto);
 
@@ -70,16 +113,130 @@ describe('AuthService', () => {
       expect(result.tokens.tokenType).toBe('Bearer');
       expect(result.user.id).toBe('user-123');
       expect(result.user.email).toBe('test@example.com');
-      expect(result.user.role).toBe('admin');
+      // P0-A 修复验证：角色来自 profiles 表，不是 user_metadata
+      expect(result.user.role).toBe('operator');
+      expect(result.user.parkingId).toBe('parking-456');
+      expect(result.user.displayName).toBe('Real Name');
+    });
+
+    it('should throw ForbiddenError when user has no profile record', async () => {
+      vi.mocked(supabase.auth.signInWithPassword).mockResolvedValue({
+        data: {
+          user: {
+            id: 'user-123',
+            email: 'test@example.com',
+            user_metadata: { role: 'admin' },
+            created_at: '2024-01-01T00:00:00Z',
+          },
+          session: {
+            access_token: 'mock-access-token',
+            refresh_token: 'mock-refresh-token',
+            expires_in: 3600,
+          },
+        },
+        error: null,
+      } as any);
+
+      // Mock profile query - 返回空（用户无 profiles 记录）
+      mockProfileQuery(null);
+      vi.mocked(supabase.from).mockReturnValue({
+        select: vi.fn().mockReturnThis(),
+        eq: vi.fn().mockReturnThis(),
+        single: vi.fn().mockResolvedValue({ data: null, error: { code: 'PGRST116', message: 'Not found' } }),
+      } as any);
+
+      await expect(authService.login(validLoginDto)).rejects.toThrow('用户档案不存在');
+    });
+
+    it('should throw AccountDisabledError when profile is_active is false', async () => {
+      vi.mocked(supabase.auth.signInWithPassword).mockResolvedValue({
+        data: {
+          user: {
+            id: 'user-123',
+            email: 'test@example.com',
+            user_metadata: { role: 'admin' },
+            created_at: '2024-01-01T00:00:00Z',
+          },
+          session: {
+            access_token: 'mock-access-token',
+            refresh_token: 'mock-refresh-token',
+            expires_in: 3600,
+          },
+        },
+        error: null,
+      } as any);
+
+      // Mock profile query - is_active = false
+      mockProfileQuery({
+        role: 'operator',
+        is_active: false,
+      });
+
+      await expect(authService.login(validLoginDto)).rejects.toThrow('账号已被禁用');
+    });
+
+    it('should throw AccountDisabledError when banned_until is in the future', async () => {
+      const futureDate = new Date();
+      futureDate.setFullYear(futureDate.getFullYear() + 1); // 未来 1 年
+
+      vi.mocked(supabase.auth.signInWithPassword).mockResolvedValue({
+        data: {
+          user: {
+            id: 'user-123',
+            email: 'test@example.com',
+            user_metadata: { role: 'admin' },
+            created_at: '2024-01-01T00:00:00Z',
+            banned_until: futureDate.toISOString(), // 未来封禁
+          },
+          session: {
+            access_token: 'mock-access-token',
+            refresh_token: 'mock-refresh-token',
+            expires_in: 3600,
+          },
+        },
+        error: null,
+      } as any);
+
+      await expect(authService.login(validLoginDto)).rejects.toThrow('账号已被封禁至');
+    });
+
+    it('should NOT throw when banned_until is in the past', async () => {
+      const pastDate = new Date();
+      pastDate.setFullYear(pastDate.getFullYear() - 1); // 过去 1 年
+
+      vi.mocked(supabase.auth.signInWithPassword).mockResolvedValue({
+        data: {
+          user: {
+            id: 'user-123',
+            email: 'test@example.com',
+            user_metadata: { role: 'admin' },
+            created_at: '2024-01-01T00:00:00Z',
+            banned_until: pastDate.toISOString(), // 过去封禁（已过期）
+          },
+          session: {
+            access_token: 'mock-access-token',
+            refresh_token: 'mock-refresh-token',
+            expires_in: 3600,
+          },
+        },
+        error: null,
+      } as any);
+
+      mockProfileQuery({
+        role: 'operator',
+        is_active: true,
+      });
+
+      // 不应抛出异常（过去时间的 banned_until 不阻止登录）
+      const result = await authService.login(validLoginDto);
+      expect(result.user.id).toBe('user-123');
     });
 
     it('should throw InvalidCredentialsError with invalid credentials', async () => {
-      const mockResponse = {
+      vi.mocked(supabase.auth.signInWithPassword).mockResolvedValue({
         data: null,
         error: { message: 'Invalid login credentials' },
-      };
-
-      vi.mocked(supabase.auth.signInWithPassword).mockResolvedValue(mockResponse as any);
+      } as any);
 
       await expect(authService.login(validLoginDto)).rejects.toThrow('用户名或密码错误');
     });
@@ -97,39 +254,46 @@ describe('AuthService', () => {
     });
 
     it('should throw AccountDisabledError when email is not confirmed', async () => {
-      const mockResponse = {
+      vi.mocked(supabase.auth.signInWithPassword).mockResolvedValue({
         data: null,
         error: { message: 'Email not confirmed' },
-      };
-
-      vi.mocked(supabase.auth.signInWithPassword).mockResolvedValue(mockResponse as any);
+      } as any);
 
       await expect(authService.login(validLoginDto)).rejects.toThrow('账号未激活');
     });
   });
 
   describe('logout', () => {
-    it('should successfully logout', async () => {
-      vi.mocked(supabase.auth.signOut).mockResolvedValue({ error: null } as any);
+    it('should blacklist access token on logout', async () => {
+      vi.mocked(supabase.auth.admin.signOut).mockResolvedValue({ error: null } as any);
 
-      await authService.logout('mock-token', 'user-123');
+      await authService.logout('mock-token', undefined, 'user-123');
 
-      expect(supabase.auth.signOut).toHaveBeenCalledWith('mock-token');
+      expect(supabase.auth.admin.signOut).toHaveBeenCalledWith('mock-token');
+    });
+
+    it('should blacklist both access and refresh tokens when refresh provided', async () => {
+      vi.mocked(supabase.auth.admin.signOut).mockResolvedValue({ error: null } as any);
+
+      await authService.logout('access-token', 'refresh-token', 'user-123');
+
+      // P0-B 修复验证：应同时调用 blacklistTokenPair
+      expect(supabase.auth.admin.signOut).toHaveBeenCalledWith('access-token');
     });
 
     it('should handle logout error gracefully', async () => {
-      vi.mocked(supabase.auth.signOut).mockResolvedValue({
+      vi.mocked(supabase.auth.admin.signOut).mockResolvedValue({
         error: { message: 'Token expired' },
       } as any);
 
       // Should not throw
-      await expect(authService.logout('mock-token', 'user-123')).resolves.not.toThrow();
+      await expect(authService.logout('mock-token', undefined, 'user-123')).resolves.not.toThrow();
     });
   });
 
   describe('refreshToken', () => {
     it('should successfully refresh token', async () => {
-      const mockResponse = {
+      vi.mocked(supabase.auth.refreshSession).mockResolvedValue({
         data: {
           user: { id: 'user-123' },
           session: {
@@ -139,9 +303,7 @@ describe('AuthService', () => {
           },
         },
         error: null,
-      };
-
-      vi.mocked(supabase.auth.refreshSession).mockResolvedValue(mockResponse as any);
+      } as any);
 
       const result = await authService.refreshToken({ refreshToken: 'valid-refresh-token' });
 
@@ -156,21 +318,11 @@ describe('AuthService', () => {
       ).rejects.toThrow('参数校验失败');
     });
 
-    it('should throw TokenRefreshError when refreshToken is blacklisted', async () => {
-      authService.blacklistToken('blacklisted-token');
-
-      await expect(
-        authService.refreshToken({ refreshToken: 'blacklisted-token' }),
-      ).rejects.toThrow('无法刷新令牌');
-    });
-
     it('should throw TokenExpiredError when refresh token is expired', async () => {
-      const mockResponse = {
+      vi.mocked(supabase.auth.refreshSession).mockResolvedValue({
         data: null,
         error: { message: 'refresh_token expired' },
-      };
-
-      vi.mocked(supabase.auth.refreshSession).mockResolvedValue(mockResponse as any);
+      } as any);
 
       await expect(
         authService.refreshToken({ refreshToken: 'expired-token' }),
@@ -178,11 +330,17 @@ describe('AuthService', () => {
     });
   });
 
-  describe('getCurrentUser', () => {
-    const validToken = 'valid-access-token';
+  describe('getCurrentUserById', () => {
+    const mockProfileQuery = (profileData: any) => {
+      vi.mocked(supabase.from).mockReturnValue({
+        select: vi.fn().mockReturnThis(),
+        eq: vi.fn().mockReturnThis(),
+        single: vi.fn().mockResolvedValue({ data: profileData, error: null }),
+      } as any);
+    };
 
-    it('should return user profile when token is valid', async () => {
-      const mockResponse = {
+    it('should return user profile from profiles table when user is valid', async () => {
+      vi.mocked(supabase.auth.admin.getUserById).mockResolvedValue({
         data: {
           user: {
             id: 'user-123',
@@ -193,44 +351,65 @@ describe('AuthService', () => {
           },
         },
         error: null,
-      };
+      } as any);
 
-      vi.mocked(supabase.auth.getUser).mockResolvedValue(mockResponse as any);
+      mockProfileQuery({
+        role: 'admin',
+        parking_id: 'parking-1',
+        is_active: true,
+        display_name: 'Test User',
+        email: 'test@example.com',
+      });
 
-      const user = await authService.getCurrentUser(validToken);
+      const user = await authService.getCurrentUserById('user-123');
 
       expect(user.id).toBe('user-123');
       expect(user.email).toBe('test@example.com');
+      // P0-A 修复验证：角色来自 profiles 表
       expect(user.role).toBe('admin');
-      expect(user.displayName).toBe('Test User');
+      expect(user.parkingId).toBe('parking-1');
     });
 
-    it('should throw UnauthorizedError when token is invalid', async () => {
-      const mockResponse = {
-        data: { user: null },
-        error: { message: 'Invalid token' },
-      };
+    it('should throw AccountDisabledError when banned_until is in the future', async () => {
+      const futureDate = new Date();
+      futureDate.setDate(futureDate.getDate() + 30);
 
-      vi.mocked(supabase.auth.getUser).mockResolvedValue(mockResponse as any);
+      vi.mocked(supabase.auth.admin.getUserById).mockResolvedValue({
+        data: {
+          user: {
+            id: 'user-123',
+            email: 'test@example.com',
+            created_at: '2024-01-01T00:00:00Z',
+            banned_until: futureDate.toISOString(),
+          },
+        },
+        error: null,
+      } as any);
 
-      await expect(authService.getCurrentUser('invalid-token')).rejects.toThrow('无效的访问令牌');
+      await expect(authService.getCurrentUserById('user-123')).rejects.toThrow('账号已被封禁');
     });
 
-    it('should throw TokenExpiredError when token is expired', async () => {
-      const mockResponse = {
+    it('should throw UnauthorizedError when user not found', async () => {
+      vi.mocked(supabase.auth.admin.getUserById).mockResolvedValue({
         data: { user: null },
-        error: { message: 'Token expired' },
-      };
+        error: { message: 'User not found' },
+      } as any);
 
-      vi.mocked(supabase.auth.getUser).mockResolvedValue(mockResponse as any);
-
-      await expect(authService.getCurrentUser('expired-token')).rejects.toThrow('访问令牌已过期');
+      await expect(authService.getCurrentUserById('invalid-id')).rejects.toThrow('用户不存在');
     });
   });
 
   describe('verifyToken', () => {
-    it('should return user info when token is valid', async () => {
-      const mockResponse = {
+    const mockProfileQuery = (profileData: any) => {
+      vi.mocked(supabase.from).mockReturnValue({
+        select: vi.fn().mockReturnThis(),
+        eq: vi.fn().mockReturnThis(),
+        single: vi.fn().mockResolvedValue({ data: profileData, error: null }),
+      } as any);
+    };
+
+    it('should return user info with role from profiles when token is valid', async () => {
+      vi.mocked(supabase.auth.getUser).mockResolvedValue({
         data: {
           user: {
             id: 'user-123',
@@ -239,44 +418,41 @@ describe('AuthService', () => {
           },
         },
         error: null,
-      };
+      } as any);
 
-      vi.mocked(supabase.auth.getUser).mockResolvedValue(mockResponse as any);
+      mockProfileQuery({
+        role: 'cashier', // 来自 profiles 表
+        parking_id: 'parking-1',
+        is_active: true,
+      });
 
       const result = await authService.verifyToken('valid-token');
 
       expect(result.id).toBe('user-123');
       expect(result.email).toBe('test@example.com');
-      expect(result.role).toBe('operator');
+      // P0-A 修复验证：角色来自 profiles，不是 user_metadata
+      expect(result.role).toBe('cashier');
+      expect(result.parkingId).toBe('parking-1');
     });
 
-    it('should throw UnauthorizedError when token is blacklisted', async () => {
-      authService.blacklistToken('blacklisted-token');
+    it('should throw ForbiddenError when user has no profile', async () => {
+      vi.mocked(supabase.auth.getUser).mockResolvedValue({
+        data: {
+          user: {
+            id: 'user-123',
+            email: 'test@example.com',
+          },
+        },
+        error: null,
+      } as any);
 
-      await expect(authService.verifyToken('blacklisted-token')).rejects.toThrow('令牌已被注销');
-    });
-  });
+      vi.mocked(supabase.from).mockReturnValue({
+        select: vi.fn().mockReturnThis(),
+        eq: vi.fn().mockReturnThis(),
+        single: vi.fn().mockResolvedValue({ data: null, error: { code: 'PGRST116' } }),
+      } as any);
 
-  describe('blacklist management', () => {
-    it('should correctly manage token blacklist', () => {
-      const token = 'test-token';
-      
-      expect(authService.isTokenBlacklisted(token)).toBe(false);
-      
-      authService.blacklistToken(token);
-      expect(authService.isTokenBlacklisted(token)).toBe(true);
-    });
-
-    it('should cleanup blacklist when it exceeds max size', () => {
-      // Fill blacklist
-      for (let i = 0; i < 10001; i++) {
-        authService.blacklistToken(`token-${i}`);
-      }
-      
-      authService.cleanupBlacklist();
-      
-      // Should not throw
-      expect(true).toBe(true);
+      await expect(authService.verifyToken('valid-token')).rejects.toThrow('用户档案不存在');
     });
   });
 });

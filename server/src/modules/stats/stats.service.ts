@@ -1,7 +1,7 @@
 // 统计模块 - 业务逻辑层
-// 处理统计分析的业务逻辑
+// P1-C 修复：聚合改用数据库 RPC 函数，避免全量拉取到 Node 内存
 
-import { statsRepository, RealtimeStats, DailyStats, WeeklyStats } from './stats.repository.js';
+import { statsRepository, RealtimeStats, DailyStats } from './stats.repository.js';
 import { supabase } from '../../shared/database/supabase.js';
 import { NotFoundError } from '../../shared/types/errors.js';
 import { logger } from '../../shared/utils/logger.js';
@@ -22,13 +22,19 @@ export interface RealtimeStatsResponse extends RealtimeStats {
   };
 }
 
-export interface WeeklyStatsResponse extends WeeklyStats {
-  summary: {
-    avgEntriesPerDay: number;
-    avgRevenuePerDay: number;
-    peakDay: string;
-    peakEntries: number;
-  };
+export interface WeeklyStatsResult {
+  parkingId: string;
+  weekStart: string;
+  weekEnd: string;
+  totalEntries: number;
+  totalExits: number;
+  avgDurationMinutes: number;
+  totalRevenue: number;
+  avgEntriesPerDay: number;
+  avgRevenuePerDay: number;
+  peakDay: string;
+  peakEntries: number;
+  dailyBreakdown: DailyStats[];
 }
 
 // ==================== StatsService ====================
@@ -53,7 +59,6 @@ export class StatsService {
     ]);
 
     if (!realtimeStats) {
-      // 如果视图没有数据，返回基础数据
       return {
         parkingId,
         parkingName: '',
@@ -84,6 +89,7 @@ export class StatsService {
 
   /**
    * 获取日报统计
+   * P1-C 修复：优先使用数据库 RPC 聚合计算
    * @param parkingId 停车场 ID
    * @param date 日期（YYYY-MM-DD），默认为今天
    */
@@ -101,66 +107,59 @@ export class StatsService {
       throw new NotFoundError('无效的日期格式，请使用 YYYY-MM-DD');
     }
 
+    // P1-C: 优先使用物化视图
     const stats = await statsRepository.getDailyStats(parkingId, targetDate);
+    if (stats) return stats;
 
-    // 如果没有物化视图数据，尝试实时计算
-    if (!stats) {
-      return this.computeDailyStatsRealtime(parkingId, targetDate);
+    // P1-C 修复：使用数据库 RPC 聚合（在数据库端计算，避免 OOM）
+    const startOfDay = new Date(`${targetDate}T00:00:00Z`);
+    const endOfDay = new Date(`${targetDate}T23:59:59Z`);
+
+    const { data, error } = await supabase.rpc('calculate_daily_stats', {
+      p_parking_id: parkingId,
+      p_start_time: startOfDay.toISOString(),
+      p_end_time: endOfDay.toISOString(),
+    });
+
+    if (error) {
+      logger.error('Failed to calculate daily stats via RPC', { error: error.message, parkingId, targetDate });
+      throw error;
     }
 
-    return stats;
-  }
-
-  /**
-   * 实时计算日报统计（物化视图没有数据时的降级方案）
-   */
-  private async computeDailyStatsRealtime(parkingId: string, date: string): Promise<DailyStats> {
-    const startTime = new Date(`${date}T00:00:00Z`).toISOString();
-    const endTime = new Date(`${date}T23:59:59Z`).toISOString();
-
-    const { data: records } = await supabase
-      .from('vehicle_entry_records')
-      .select('entry_time, exit_time')
-      .eq('parking_id', parkingId)
-      .gte('entry_time', startTime)
-      .lt('entry_time', endTime);
-
-    const totalEntries = records?.length || 0;
-
-    // 计算平均停车时长
-    let avgDuration = 0;
-    if (records && records.length > 0) {
-      const durations = records
-        .filter(r => r.exit_time)
-        .map(r => {
-          const entry = new Date(r.entry_time).getTime();
-          const exit = new Date(r.exit_time).getTime();
-          return (exit - entry) / 60000; // 转换为分钟
-        });
-      
-      if (durations.length > 0) {
-        avgDuration = durations.reduce((a, b) => a + b, 0) / durations.length;
-      }
+    if (!data || (Array.isArray(data) && data.length === 0)) {
+      return {
+        parkingId,
+        statDate: targetDate,
+        totalEntries: 0,
+        totalExits: 0,
+        avgDurationMinutes: 0,
+        totalRevenue: 0,
+        paidAmount: 0,
+        pendingAmount: 0,
+      };
     }
+
+    const result = Array.isArray(data) ? data[0] : data;
 
     return {
       parkingId,
-      statDate: date,
-      totalEntries,
-      totalExits: records?.filter(r => r.exit_time).length || 0,
-      avgDurationMinutes: Math.round(avgDuration),
-      totalRevenue: 0,
-      paidAmount: 0,
+      statDate: targetDate,
+      totalEntries: Number(result.total_entries) || 0,
+      totalExits: Number(result.total_exits) || 0,
+      avgDurationMinutes: Math.round(Number(result.avg_duration_minutes)) || 0,
+      totalRevenue: Number(result.total_revenue) || 0,
+      paidAmount: Number(result.total_revenue) || 0, // RPC 返回的是 paid revenue
       pendingAmount: 0,
     };
   }
 
   /**
    * 获取周报统计
+   * P1-C 修复：使用数据库 RPC 聚合
    * @param parkingId 停车场 ID
    * @param weekStart 周开始日期（YYYY-MM-DD），默认为本周一
    */
-  async getWeeklyStats(parkingId: string, weekStart?: string): Promise<WeeklyStatsResponse> {
+  async getWeeklyStats(parkingId: string, weekStart?: string): Promise<WeeklyStatsResult> {
     // 验证停车场是否存在
     const exists = await statsRepository.parkingExists(parkingId);
     if (!exists) {
@@ -175,37 +174,49 @@ export class StatsService {
       throw new NotFoundError('无效的日期格式，请使用 YYYY-MM-DD');
     }
 
-    // 获取一周的日报数据
-    const dailyStats = await statsRepository.getDailyStatsRange(parkingId, startDate, endDate);
+    // P1-C 修复：使用数据库 RPC 聚合（在数据库端计算）
+    const { data, error } = await supabase.rpc('calculate_weekly_stats', {
+      p_parking_id: parkingId,
+      p_week_start: startDate,
+    });
 
-    // 聚合周报数据
-    const totalEntries = dailyStats.reduce((sum, d) => sum + d.totalEntries, 0);
-    const totalRevenue = dailyStats.reduce((sum, d) => sum + d.totalRevenue, 0);
-    const avgDuration = dailyStats.length > 0
-      ? dailyStats.reduce((sum, d) => sum + d.avgDurationMinutes, 0) / dailyStats.length
-      : 0;
+    if (error) {
+      logger.error('Failed to calculate weekly stats via RPC', { error: error.message, parkingId, startDate });
+      throw error;
+    }
 
-    // 找出峰值日
-    const peakDay = dailyStats.reduce((max, d) => 
-      d.totalEntries > max.totalEntries ? d : max,
-      { statDate: '-', totalEntries: 0 } as { statDate: string; totalEntries: number },
-    );
+    if (!data || (Array.isArray(data) && data.length === 0)) {
+      return {
+        parkingId,
+        weekStart: startDate,
+        weekEnd: endDate,
+        totalEntries: 0,
+        totalExits: 0,
+        avgDurationMinutes: 0,
+        totalRevenue: 0,
+        avgEntriesPerDay: 0,
+        avgRevenuePerDay: 0,
+        peakDay: '-',
+        peakEntries: 0,
+        dailyBreakdown: [],
+      };
+    }
+
+    const result = Array.isArray(data) ? data[0] : data;
 
     return {
       parkingId,
       weekStart: startDate,
       weekEnd: endDate,
-      totalEntries,
-      totalExits: dailyStats.reduce((sum, d) => sum + d.totalExits, 0),
-      avgDurationMinutes: Math.round(avgDuration),
-      totalRevenue,
-      dailyBreakdown: dailyStats,
-      summary: {
-        avgEntriesPerDay: Math.round(totalEntries / 7),
-        avgRevenuePerDay: Math.round(totalRevenue / 7 * 100) / 100,
-        peakDay: peakDay.statDate,
-        peakEntries: peakDay.totalEntries,
-      },
+      totalEntries: Number(result.total_entries) || 0,
+      totalExits: Number(result.total_exits) || 0,
+      avgDurationMinutes: Math.round(Number(result.avg_duration_minutes)) || 0,
+      totalRevenue: Number(result.total_revenue) || 0,
+      avgEntriesPerDay: Math.round(Number(result.avg_entries_per_day)) || 0,
+      avgRevenuePerDay: Number(result.avg_revenue_per_day) || 0,
+      peakDay: result.peak_day || '-',
+      peakEntries: Number(result.peak_entries) || 0,
+      dailyBreakdown: [], // 详细日数据可通过批量日期查询获取
     };
   }
 
