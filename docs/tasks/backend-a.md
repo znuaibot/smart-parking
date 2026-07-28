@@ -1,7 +1,8 @@
 # 后端开发 A - 任务分配
 
+> 工作空间：`/mnt/data/catpaw/home/workspace/code/smart-parking-backend-a/`
+> 分支：`feat/auth-stats`
 > 负责模块：Shared 基础设施 + Auth 认证 + Stats 统计
-> 预估工时：~35h | 优先级：P0 (Week 1 必须完成)
 
 ---
 
@@ -16,7 +17,7 @@
 
 ## 任务清单
 
-### 任务 A-1: Supabase 客户端封装（2h）
+### 任务 A-1: Supabase 客户端封装
 
 **路径：** `server/src/shared/database/supabase.ts`
 
@@ -25,7 +26,7 @@ Supabase 客户端已创建基础版本，需要你完善：
 - 添加错误重试逻辑（网络错误自动重试 1 次）
 - 导出 TypeScript 类型
 
-### 任务 A-2: 统一配置管理（2h）
+### 任务 A-2: 统一配置管理
 
 **路径：** `server/src/config/index.ts`
 
@@ -34,7 +35,7 @@ Supabase 客户端已创建基础版本，需要你完善：
 - 添加 `SUPABASE_PASSWORD` 校验（缺失时 fail-fast）
 - 补充 Redis 连接健康检查
 
-### 任务 A-3: 错误类型补充（2h）
+### 任务 A-3: 错误类型补充
 
 **路径：** `server/src/shared/types/errors.ts`
 
@@ -43,7 +44,7 @@ Supabase 客户端已创建基础版本，需要你完善：
 - `LPRFailedError` — 车牌识别失败
 - `PaymentFailedError` — 支付失败
 
-### 任务 A-4: 日志工具完善（2h）
+### 任务 A-4: 日志工具完善
 
 **路径：** `server/src/shared/utils/logger.ts`
 
@@ -52,7 +53,7 @@ Pino 已配置，需要补充：
 - `logAPICall(req, res, duration)` — 记录 API 调用
 - 开发环境使用 pino-pretty，生产环境输出 JSON
 
-### 任务 A-5: 认证模块实现（8h）⭐ 核心任务
+### 任务 A-5: 认证模块实现⭐ 核心任务
 
 **新建文件：**
 - `server/src/modules/auth/auth.service.ts`
@@ -80,7 +81,7 @@ export class AuthService {
 }
 ```
 
-### 任务 A-6: 鉴权中间件（4h）
+### 任务 A-6: 鉴权中间件
 
 **路径：** `server/src/middleware/authenticate.ts`
 
@@ -92,7 +93,7 @@ if (error || !user) throw new UnauthorizedError();
 req.user = { id: user.id, role: user.user_metadata?.role };
 ```
 
-### 任务 A-7: 权限中间件 RBAC（4h）
+### 任务 A-7: 权限中间件 RBAC
 
 **新建文件：** `server/src/middleware/authorize.ts`
 
@@ -102,7 +103,7 @@ req.user = { id: user.id, role: user.user_metadata?.role };
 parkingRouter.post('/', authorize('superadmin'), parkingController.create);
 ```
 
-### 任务 A-8: 统计模块（8h）
+### 任务 A-8: 统计模块
 
 **新建文件：**
 - `server/src/modules/stats/stats.service.ts`

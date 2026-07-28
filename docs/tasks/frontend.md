@@ -1,7 +1,8 @@
 # 前端开发 - 任务分配
 
+> 工作空间：`/mnt/data/catpaw/home/workspace/code/smart-parking-frontend/`
+> 分支：`feat/frontend`
 > 负责模块：全部管理后台页面（React + Ant Design）
-> 预估工时：~38h | 优先级：P0
 
 ---
 
@@ -16,7 +17,7 @@
 
 ## 任务清单
 
-### 任务 F-1: API 客户端封装（4h）
+### 任务 F-1: API 客户端封装
 
 **新建文件：** `client/src/api/client.ts`
 
@@ -59,7 +60,7 @@ export default apiClient;
 
 **新建文件：** `client/src/api/auth.ts`、`client/src/api/parking.ts`、`client/src/api/space.ts`
 
-### 任务 F-2: 布局组件和导航（6h）⭐ 优先完成
+### 任务 F-2: 布局组件和导航⭐ 优先完成
 
 **新建文件：**
 - `client/src/components/layout/AppLayout.tsx`
@@ -125,7 +126,7 @@ const menuItems = [
 └──────────┴──────────────────────────────────────────────┘
 ```
 
-### 任务 F-3: 登录页面（6h）⭐ 核心页面
+### 任务 F-3: 登录页面⭐ 核心页面
 
 **新建文件：**
 - `client/src/pages/Login/index.tsx`
@@ -149,7 +150,7 @@ const login = async (values: LoginFormValues) => {
 };
 ```
 
-### 任务 F-4: 停车场列表页（8h）⭐ 核心页面
+### 任务 F-4: 停车场列表页⭐ 核心页面
 
 **新建文件：**
 - `client/src/pages/parking/ParkingList.tsx`
@@ -174,7 +175,7 @@ const login = async (values: LoginFormValues) => {
 - 创建/编辑弹窗（Modal + Form）
 - 删除确认（Popconfirm）
 
-### 任务 F-5: 车位管理页面（10h）⭐ 最复杂页面
+### 任务 F-5: 车位管理页面⭐ 最复杂页面
 
 **新建文件：**
 - `client/src/pages/parking/SpaceList.tsx`
@@ -207,7 +208,7 @@ const login = async (values: LoginFormValues) => {
 🟢 可用  🔴 占用  🟡 预约  ⚪ 禁用  🟣 VIP  🔵 充电桩
 ```
 
-### 任务 F-6: 统计卡片和首页（4h）
+### 任务 F-6: 统计卡片和首页
 
 **新建文件：**
 - `client/src/components/stats/AvailabilityCard.tsx`

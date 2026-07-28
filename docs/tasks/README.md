@@ -1,7 +1,14 @@
 # 开发任务文档索引
 
 > Sprint 1：基础设施 + 认证 + 停车场/车位管理
-> 时间：2 周（10 个工作日）
+
+## 工作空间分配
+
+| 工作空间目录 | 负责人 | 分支 |
+|-------------|--------|------|
+| `/mnt/data/catpaw/home/workspace/code/smart-parking-backend-a/` | 后端开发 A | `feat/auth-stats` |
+| `/mnt/data/catpaw/home/workspace/code/smart-parking-backend-b/` | 后端开发 B | `feat/parking-vehicle` |
+| `/mnt/data/catpaw/home/workspace/code/smart-parking-frontend/` | 前端开发 | `feat/frontend` |
 
 ## 分支策略
 
@@ -12,20 +19,17 @@
 | `feat/frontend` | 前端开发 | 全部管理后台页面 |
 | `main` | 架构师 | 主分支，PR 合并目标 |
 
-### 开发流程
+### 工作流程
 
 ```bash
-# 1. 切换到你的分支
-git checkout feat/auth-stats    # 后端 A
-git checkout feat/parking-vehicle  # 后端 B
-git checkout feat/frontend       # 前端
+# 进入你的工作空间目录
+cd /mnt/data/catpaw/home/workspace/code/smart-parking-backend-a   # 后端 A
+cd /mnt/data/catpaw/home/workspace/code/smart-parking-backend-b   # 后端 B
+cd /mnt/data/catpaw/home/workspace/code/smart-parking-frontend    # 前端
 
-# 2. 定期推送到远程
+# 编码...
+# 完成后推送并创建 PR 到 main
 git push origin feat/auth-stats
-
-# 3. 完成后创建 PR 到 main
-# GitHub > Pull requests > New pull request
-# 选择: base: main ← compare: feat/auth-stats
 ```
 
 ## 文档导航
@@ -49,23 +53,16 @@ git push origin feat/auth-stats
 
 ## 工时汇总
 
-| 角色 | 工时 | 文件数 |
-|------|------|--------|
-| 后端 A | ~35h | ~8 个新文件 |
-| 后端 B | ~40h | ~10 个新文件 |
-| 前端 | ~38h | ~15 个新文件 |
-| **合计** | **~113h** | **~33 个新文件** |
+| 角色 | 文件数 |
+|------|--------|
+| 后端开发 A | ~8 个新文件 |
+| 后端开发 B | ~10 个新文件 |
+| 前端开发 | ~15 个新文件 |
+| **合计** | **~33 个新文件** |
 
 ## 执行顺序
 
-```
-Week 1:
-  D1-3: 后端 A 完成 Auth + Shared
-  D1-5: 后端 B 完成 Parking CRUD
-  D1-5: 前端完成 Layout + 登录页
-
-Week 2:
-  D6-8: 后端 A 完成 Stats
-  D6-10: 后端 B 完成 Vehicle
-  D6-10: 前端完成 停车场/车位/统计页面
-```
+并行开发，各自独立完成：
+- 后端 A: Auth + Stats 模块
+- 后端 B: Parking + Vehicle 模块
+- 前端: 全部管理后台页面

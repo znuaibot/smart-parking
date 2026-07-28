@@ -6,27 +6,24 @@
 
 ## 分支策略
 
-| 分支名 | 负责人 | 说明 |
-|--------|--------|------|
-| `feat/auth-stats` | 后端开发 A | Auth + Stats + Shared |
-| `feat/parking-vehicle` | 后端开发 B | Parking + Vehicle + Billing 基础 |
-| `feat/frontend` | 前端开发 | 全部管理后台页面 |
-| `main` | 架构师 | 主分支，PR 合并目标 |
+| 工作空间目录 | 负责人 | 分支 |
+|-------------|--------|------|
+| `/mnt/data/catpaw/home/workspace/code/smart-parking-backend-a/` | 后端开发 A | `feat/auth-stats` |
+| `/mnt/data/catpaw/home/workspace/code/smart-parking-backend-b/` | 后端开发 B | `feat/parking-vehicle` |
+| `/mnt/data/catpaw/home/workspace/code/smart-parking-frontend/` | 前端开发 | `feat/frontend` |
+| - | 架构师 | `main` |
 
 ### 开发流程
 
 ```bash
-# 1. 切换到你的分支
-git checkout feat/auth-stats    # 后端 A
-git checkout feat/parking-vehicle  # 后端 B
-git checkout feat/frontend       # 前端
+# 进入你的工作空间
+cd /mnt/data/catpaw/home/workspace/code/smart-parking-backend-a    # 后端 A
+cd /mnt/data/catpaw/home/workspace/code/smart-parking-backend-b    # 后端 B
+cd /mnt/data/catpaw/home/workspace/code/smart-parking-frontend     # 前端
 
-# 2. 定期推送到远程
+# 编码...
+# 完成后推送并创建 PR
 git push origin feat/auth-stats
-
-# 3. 完成后创建 PR 到 main
-# GitHub > Pull requests > New pull request
-# 选择: base: main ← compare: feat/auth-stats
 ```
 
 ## 技术架构

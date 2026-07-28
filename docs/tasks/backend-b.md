@@ -1,7 +1,8 @@
 # 后端开发 B - 任务分配
 
+> 工作空间：`/mnt/data/catpaw/home/workspace/code/smart-parking-backend-b/`
+> 分支：`feat/parking-vehicle`
 > 负责模块：Parking 停车场 + Vehicle 进出记录 + Billing 计费基础
-> 预估工时：~40h | 优先级：P0 (Week 1-2 必须完成)
 
 ---
 
@@ -16,7 +17,7 @@
 
 ## 任务清单
 
-### 任务 B-1: 停车场模块实现（10h）⭐ 核心任务
+### 任务 B-1: 停车场模块实现⭐ 核心任务
 
 **新建文件：**
 - `server/src/modules/parking/parking.service.ts`
@@ -47,7 +48,7 @@ export const CreateParkingSchema = z.object({
 });
 ```
 
-### 任务 B-2: 车位模块实现（12h）⭐ 核心任务
+### 任务 B-2: 车位模块实现⭐ 核心任务
 
 **新建文件：**
 - `server/src/modules/parking/space.service.ts`
@@ -79,7 +80,7 @@ RETURNING *;
 -- 返回行数为0 → 抛出 ConflictError(409)
 ```
 
-### 任务 B-3: 车辆入场模块（10h）⭐ 核心任务
+### 任务 B-3: 车辆入场模块⭐ 核心任务
 
 **新建文件：**
 - `server/src/modules/vehicle/vehicle.service.ts`
@@ -113,7 +114,7 @@ async recordEntry(dto: VehicleEntryDTO): Promise<VehicleEntryRecord> {
 const plateRegex = /^[京津沪渝冀豫云辽黑湘皖鲁新苏浙赣鄂桂甘晋蒙陕吉闽贵粤青藏川宁琼使领][A-Z][A-Z0-9]{4,5}[A-Z0-9挂学警港澳]$/;
 ```
 
-### 任务 B-4: 车辆出场模块（8h）
+### 任务 B-4: 车辆出场模块
 
 **扩展文件：** `server/src/modules/vehicle/vehicle.service.ts`
 
