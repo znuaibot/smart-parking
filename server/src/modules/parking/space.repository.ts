@@ -284,6 +284,29 @@ export class SpaceRepository {
   }
 
   /**
+   * 检查车位编码冲突（批量）
+   * @returns 冲突的编码列表
+   */
+  async checkCodeConflicts(parkingId: string, codes: string[]): Promise<string[]> {
+    if (!codes || codes.length === 0) {
+      return [];
+    }
+
+    const { data, error } = await supabase
+      .from(this.tableName)
+      .select('code')
+      .eq('parking_id', parkingId)
+      .in('code', codes);
+
+    if (error) {
+      logger.error('Failed to check code conflicts', { error: error.message, parkingId });
+      throw error;
+    }
+
+    return (data || []).map((row: { code: string }) => row.code);
+  }
+
+  /**
    * 释放车位（车辆出场时调用）
    */
   async releaseSpace(id: string): Promise<void> {

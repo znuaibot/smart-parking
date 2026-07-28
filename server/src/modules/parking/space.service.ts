@@ -76,37 +76,26 @@ export class SpaceService {
 
     // 2. 生成车位数据
     const spaceCodePrefix = prefix || zone;
-    const codes: string[] = [];
-    const spaces: Omit<ParkingSpace, 'id' | 'created_at' | 'updated_at'>[] = [];
+    const spaces: Array<{ code: string; zone: string | null; floor: number; space_type: SpaceType }> = [];
 
     for (let i = 0; i < count; i++) {
       const number = startNumber + i;
       const code = `${spaceCodePrefix}-${String(floor).padStart(2, '0')}-${String(number).padStart(3, '0')}`;
-      codes.push(code);
 
       spaces.push({
-        parking_id: parkingId,
         code,
         zone,
         floor,
         space_type: spaceType,
-        status: 'available',
-        current_plate: null,
-        current_entry_id: null,
-        device_id: null,
       });
-    }
-
-    // 3. 预校验编码冲突（防止事务因唯一约束异常而回滚）
-    const conflicts = await spaceRepository.checkCodeConflicts(parkingId, codes);
-    if (conflicts.length > 0) {
-      throw new ConflictError(`以下车位编码已存在: ${conflicts.join(', ')}`);
     }
 
     logger.info('Batch creating spaces', { parkingId, zone, count });
 
-    // 4. 通过 RPC 在事务中批量创建
-    return spaceRepository.batchCreate(spaces);
+    // 3. 通过 RPC 在事务中批量创建（RPC 内部已包含编码冲突预校验）
+    const result = await spaceRepository.batchCreate(parkingId, spaces);
+
+    return result.results;
   }
 
   /**
