@@ -3,6 +3,31 @@
 > Sprint 1：基础设施 + 认证 + 停车场/车位管理
 > 时间：2 周（10 个工作日）
 
+## 分支策略
+
+| 分支名 | 负责人 | 说明 |
+|--------|--------|------|
+| `feat/auth-stats` | 后端开发 A | Auth + Stats + Shared |
+| `feat/parking-vehicle` | 后端开发 B | Parking + Vehicle + Billing 基础 |
+| `feat/frontend` | 前端开发 | 全部管理后台页面 |
+| `main` | 架构师 | 主分支，PR 合并目标 |
+
+### 开发流程
+
+```bash
+# 1. 切换到你的分支
+git checkout feat/auth-stats    # 后端 A
+git checkout feat/parking-vehicle  # 后端 B
+git checkout feat/frontend       # 前端
+
+# 2. 定期推送到远程
+git push origin feat/auth-stats
+
+# 3. 完成后创建 PR 到 main
+# GitHub > Pull requests > New pull request
+# 选择: base: main ← compare: feat/auth-stats
+```
+
 ## 文档导航
 
 | 文档 | 阅读对象 | 说明 |
