@@ -1,6 +1,11 @@
 // 统一配置管理 - 启动时 fail-fast 校验
+// 包含数据库连接测试、Redis 健康检查
 
 import { z } from 'zod';
+import { logger } from '../shared/utils/logger.js';
+
+// Redis 客户端（可选）
+let redisClient: any = null;
 
 const EnvSchema = z.object({
   NODE_ENV: z.enum(['development', 'staging', 'production', 'test']).default('development'),
@@ -11,9 +16,13 @@ const EnvSchema = z.object({
   SUPABASE_ANON_KEY: z.string().min(20),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(20),
   SUPABASE_JWT_SECRET: z.string().min(32),
+  SUPABASE_PASSWORD: z.string().optional(),
   
   // Redis (可选)
   REDIS_URL: z.string().url().optional(),
+  REDIS_HOST: z.string().optional(),
+  REDIS_PORT: z.coerce.number().optional(),
+  REDIS_PASSWORD: z.string().optional(),
   
   // 外部服务
   LPR_API_URL: z.string().url().optional(),
@@ -32,7 +41,18 @@ const EnvSchema = z.object({
 });
 
 // 解析并校验环境变量
-export const config = EnvSchema.parse(process.env);
+const parsedConfig = EnvSchema.parse(process.env);
+
+// fail-fast: 检查 SUPABASE_PASSWORD 是否存在
+if (!parsedConfig.SUPABASE_PASSWORD) {
+  logger.warn('SUPABASE_PASSWORD is not set. Some features may not work correctly.');
+  // 非生产环境仅警告，生产环境则 fail-fast
+  if (parsedConfig.NODE_ENV === 'production') {
+    throw new Error('FATAL: SUPABASE_PASSWORD is required in production environment');
+  }
+}
+
+export const config = parsedConfig;
 
 // 便捷访问器
 export const isDev = config.NODE_ENV === 'development';
@@ -41,3 +61,78 @@ export const isTest = config.NODE_ENV === 'test';
 
 // 类型导出
 export type Config = z.infer<typeof EnvSchema>;
+
+/**
+ * 测试数据库连接
+ * @returns 连接是否成功
+ */
+export async function testDbConnection(): Promise<boolean> {
+  const { testConnection } = await import('../shared/database/supabase.js');
+  return testConnection();
+}
+
+/**
+ * 获取 Redis 客户端（懒加载）
+ */
+export async function getRedisClient(): Promise<any> {
+  if (redisClient) return redisClient;
+  
+  if (!config.REDIS_URL && !config.REDIS_HOST) {
+    logger.warn('Redis is not configured');
+    return null;
+  }
+  
+  try {
+    const Redis = (await import('ioredis')).default;
+    redisClient = new Redis(config.REDIS_URL || {
+      host: config.REDIS_HOST,
+      port: config.REDIS_PORT || 6379,
+      password: config.REDIS_PASSWORD,
+      maxRetriesPerRequest: 3,
+      retryStrategy(times: number) {
+        if (times > 3) return null;
+        return Math.min(times * 200, 1000);
+      },
+    });
+    
+    redisClient.on('connect', () => logger.info('Redis connected'));
+    redisClient.on('error', (err: Error) => logger.error('Redis error', { error: err.message }));
+    
+    return redisClient;
+  } catch (error: any) {
+    logger.error('Failed to initialize Redis', { error: error.message });
+    return null;
+  }
+}
+
+/**
+ * 测试 Redis 连接
+ * @returns 连接是否成功
+ */
+export async function testRedisConnection(): Promise<boolean> {
+  try {
+    const redis = await getRedisClient();
+    if (!redis) return false;
+    
+    const startTime = Date.now();
+    await redis.ping();
+    const duration = Date.now() - startTime;
+    
+    logger.info('Redis connection test succeeded', { duration: `${duration}ms` });
+    return true;
+  } catch (error: any) {
+    logger.error('Redis connection test failed', { error: error.message });
+    return false;
+  }
+}
+
+/**
+ * 关闭所有连接（优雅关闭用）
+ */
+export async function closeConnections(): Promise<void> {
+  if (redisClient) {
+    await redisClient.quit();
+    logger.info('Redis connection closed');
+    redisClient = null;
+  }
+}
