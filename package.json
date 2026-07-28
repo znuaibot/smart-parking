@@ -23,7 +23,9 @@
     "client"
   ],
   "devDependencies": {
+    "axios-mock-adapter": "^2.1.0",
     "concurrently": "^8.2.2",
+    "happy-dom": "^20.11.1",
     "supabase": "^1.142.0"
   },
   "engines": {
@@ -34,7 +36,15 @@
     "type": "git",
     "url": "https://github.com/znuaibot/smart-parking.git"
   },
-  "keywords": ["parking", "management", "supabase", "postgresql"],
+  "keywords": [
+    "parking",
+    "management",
+    "supabase",
+    "postgresql"
+  ],
   "author": "Parking Architect Team",
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "vitest": "^1.6.1"
+  }
 }
