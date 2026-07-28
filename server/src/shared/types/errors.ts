@@ -47,6 +47,20 @@ export class ForbiddenError extends AppError {
   }
 }
 
+export class TokenExpiredError extends AppError {
+  constructor(message = '访问令牌已过期，请重新登录') {
+    super(message, 'TOKEN_EXPIRED', 401);
+    this.name = 'TokenExpiredError';
+  }
+}
+
+export class AccountDisabledError extends AppError {
+  constructor(message = '账号已被禁用') {
+    super(message, 'ACCOUNT_DISABLED', 403);
+    this.name = 'AccountDisabledError';
+  }
+}
+
 export class ConflictError extends AppError {
   constructor(message: string) {
     super(message, 'CONFLICT', 409);
