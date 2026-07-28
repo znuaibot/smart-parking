@@ -76,7 +76,7 @@ export const metrics = new MetricsCollector();
 /**
  * 计时器辅助函数
  * 用法：
- *   const end = metrics.startTimer('vehicle.exit');
+ *   const end = startTimer('vehicle.exit');
  *   // ... 业务逻辑
  *   end(); // 自动记录耗时
  */

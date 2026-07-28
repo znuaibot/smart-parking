@@ -1,11 +1,11 @@
 // Supabase 客户端单例
 // 使用 Service Role Key 进行服务端操作（绕过 RLS）
-// 包含查询性能日志、错误重试逻辑
+// 包含查询性能日志、错误重试逻辑和事务支持
 
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { config } from '../../config/index.js';
 import { logger } from '../../shared/utils/logger.js';
-import { InternalError, ServiceUnavailableError } from '../types/errors.js';
+import { InternalError } from '../types/errors.js';
 
 let supabaseInstance: SupabaseClient | null = null;
 
@@ -59,7 +59,7 @@ function isRetryableError(error: any): boolean {
 /**
  * 带重试机制的 Supabase 查询包装器
  * @param queryFn 查询函数
-* @param queryName 查询名称（用于日志）
+ * @param queryName 查询名称（用于日志）
  * @returns 查询结果
  */
 export async function withRetry<T>(
@@ -98,15 +98,13 @@ export async function withRetry<T>(
 
       // 检查是否可重试
       if (attempt < MAX_RETRIES && isRetryableError(error)) {
-        // P2-L 修复：指数退避 + 抖动，避免重试风暴
-        const delay = Math.min(1000, Math.pow(2, attempt) * 100 + Math.random() * 50);
         logger.warn('Retryable error, retrying...', {
           query: queryName,
           attempt: attempt + 1,
-          delay: `${Math.round(delay)}ms`,
           error: error.message || error.code,
         });
-        await new Promise(resolve => setTimeout(resolve, delay));
+        // 等待一小段时间后重试
+        await new Promise(resolve => setTimeout(resolve, 100 * (attempt + 1)));
         continue;
       }
 

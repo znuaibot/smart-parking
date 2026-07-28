@@ -379,6 +379,49 @@ export class AuthService {
       throw new UnauthorizedError('令牌验证失败');
     }
   }
+
+  /**
+   * 修改密码
+   * @param userId 用户 ID
+   * @param oldPassword 原密码
+   * @param newPassword 新密码
+   */
+  async changePassword(userId: string, oldPassword: string, newPassword: string): Promise<void> {
+    try {
+      // 先验证原密码（通过 Supabase 登录验证）
+      const { data: authUser } = await supabase.auth.admin.getUserById(userId);
+      if (!authUser.user?.email) {
+        throw new UnauthorizedError('用户不存在');
+      }
+
+      // 验证原密码
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: authUser.user.email,
+        password: oldPassword,
+      });
+
+      if (signInError) {
+        throw new InvalidCredentialsError('原密码错误');
+      }
+
+      // 更新密码
+      const { error: updateError } = await supabase.auth.admin.updateUserById(userId, {
+        password: newPassword,
+      });
+
+      if (updateError) {
+        throw new SupabaseError('密码修改失败', { message: updateError.message });
+      }
+
+      logAuthEvent('password_change', { userId });
+    } catch (error: any) {
+      if (error instanceof InvalidCredentialsError || error instanceof UnauthorizedError) {
+        throw error;
+      }
+      logger.error('Change password failed', { error: error.message, userId });
+      throw new SupabaseError('密码修改失败', { message: error.message });
+    }
+  }
 }
 
 // 单例导出

@@ -1,5 +1,5 @@
 // 认证模块路由
-// P1-F 修复：添加登录限流
+// P1-F 修复：添加登录限流、密码修改端点
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { authController } from './auth.controller.js';
@@ -30,3 +30,6 @@ authRouter.post('/refresh', (req, res, next) => authController.refresh(req, res,
 
 // GET /api/v1/auth/me - 获取当前用户（需要认证）
 authRouter.get('/me', authenticate, (req, res, next) => authController.me(req, res, next));
+
+// PUT /api/v1/auth/password - 修改密码（需要认证）
+authRouter.put('/password', authenticate, (req, res, next) => authController.changePassword(req, res, next));

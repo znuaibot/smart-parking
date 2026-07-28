@@ -25,10 +25,12 @@
   "devDependencies": {
     "@typescript-eslint/eslint-plugin": "^6.21.0",
     "@typescript-eslint/parser": "^6.21.0",
+    "axios-mock-adapter": "^2.1.0",
     "concurrently": "^8.2.2",
     "eslint": "^8.57.1",
     "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-react-hooks": "^4.6.2",
+    "happy-dom": "^20.11.1",
     "supabase": "^1.142.0",
     "typescript": "^7.0.2"
   },
@@ -47,5 +49,8 @@
     "postgresql"
   ],
   "author": "Parking Architect Team",
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "vitest": "^1.6.1"
+  }
 }
