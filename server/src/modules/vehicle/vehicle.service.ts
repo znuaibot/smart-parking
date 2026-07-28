@@ -1,11 +1,20 @@
 // 车辆进出模块 - 业务逻辑层
 import { vehicleRepository, VehicleEntryRecord, Bill } from './vehicle.repository.js';
-import { lprService, LPRResult } from './lpr.service.js';
+import { lprService } from './lpr.service.js';
 import { parkingRepository } from '../parking/parking.repository.js';
 import { spaceService } from '../parking/space.service.js';
 import { VehicleEntryDTO, VehicleExitDTO, ListVehicleRecordsQuery, VehicleOngoingQuery } from './vehicle.dto.js';
-import { NotFoundError, ConflictError } from '../../shared/types/errors.js';
+import { NotFoundError, ConflictError, ServiceUnavailableError } from '../../shared/types/errors.js';
 import { logger } from '../../shared/utils/logger.js';
+import { config } from '../../config/index.js';
+
+/**
+ * 出场结果接口
+ */
+interface ExitResult {
+  record: VehicleEntryRecord;
+  bill: Bill;
+}
 
 /**
  * 车辆业务服务
@@ -71,59 +80,63 @@ export class VehicleService {
 
   /**
    * 记录车辆出场
-   * 1. 查找同车牌的 parked 记录
-   * 2. 计算停车时长
-   * 3. 计算费用
-   * 4. 创建待支付账单
-   * 5. 更新记录状态为 exited
-   * 6. 触发器释放车位
+   * 使用 RPC 在数据库事务中原子执行：
+   * 1. 查 parked 记录 → 2. 计算时长和费用 → 3. 创建账单 → 4. 更新状态 → 5. 释放车位
    */
-  async recordExit(dto: VehicleExitDTO): Promise<{ record: VehicleEntryRecord; bill: Bill }> {
-    // 1. 查找在场记录
-    const record = await vehicleRepository.findOngoingByPlate(dto.plateNumber, dto.parkingId);
-    if (!record) {
+  async recordExit(dto: VehicleExitDTO): Promise<ExitResult> {
+    // 1. 验证停车场是否存在
+    const parking = await parkingRepository.findById(dto.parkingId);
+    if (!parking) {
+      throw new NotFoundError('停车场', dto.parkingId);
+    }
+
+    // 2. 使用 RPC 在数据库事务中执行全部出场操作
+    const { data, error } = await vehicleRepository.executeVehicleExit({
+      p_plate_number: dto.plateNumber,
+      p_parking_id: dto.parkingId,
+      p_exit_gate_id: dto.exitGateId || null,
+      p_exit_image_url: dto.exitImageUrl || null,
+      p_operator_id: dto.operatorId || null,
+    });
+
+    if (error) {
+      // 处理 RPC 返回的业务错误
+      if (error.message?.includes('NOT_FOUND')) {
+        throw new NotFoundError(`未找到车牌 ${dto.plateNumber} 的在场记录`);
+      }
+      if (error.message?.includes('ALREADY_EXITED')) {
+        throw new ConflictError('该车辆已出场');
+      }
+      logger.error('Vehicle exit RPC failed', { error: error.message, plateNumber: dto.plateNumber });
+      throw error;
+    }
+
+    if (!data) {
       throw new NotFoundError(`未找到车牌 ${dto.plateNumber} 的在场记录`);
     }
 
-    // 2. 计算停车时长
-    const entryTime = new Date(record.entry_time);
-    const exitTime = new Date();
-    const durationMs = exitTime.getTime() - entryTime.getTime();
-    const durationMinutes = Math.ceil(durationMs / (1000 * 60));
+    // 解析 RPC 返回的 JSON 结果
+    let result: ExitResult;
+    if (typeof data === 'string') {
+      const parsed = JSON.parse(data);
+      if (parsed.error) {
+        throw new NotFoundError(parsed.message || '出场处理失败');
+      }
+      result = { record: parsed.record, bill: parsed.bill };
+    } else if (typeof data === 'object' && data.error) {
+      throw new NotFoundError(data.message || '出场处理失败');
+    } else {
+      result = data as ExitResult;
+    }
 
-    // 3. 计算费用（简化版，实际应根据计费规则）
-    const fee = this.calculateFee(durationMinutes, record.vehicle_type);
-
-    // 4. 创建账单
-    const bill = await vehicleRepository.createBill({
-      recordId: record.id,
-      parkingId: record.parking_id,
-      plateNumber: record.plate_number,
-      durationMinutes,
-      amount: fee,
-      actualAmount: fee,
-      operatorId: dto.operatorId,
-    });
-
-    // 5. 更新记录状态为 exited
-    const updatedRecord = await vehicleRepository.updateToExited(record.id, {
-      exitTime: exitTime.toISOString(),
-      exitGateId: dto.exitGateId,
-      exitImageUrl: dto.exitImageUrl,
-    });
-
-    // 6. 释放车位（触发器会自动处理，但这里也可以手动触发）
-    // 查找并释放关联的车位
-    await this.releaseSpaceForRecord(record.id);
-
-    logger.info('Vehicle exit recorded', {
-      recordId: record.id,
+    logger.info('Vehicle exit recorded (atomic)', {
+      recordId: result.record.id,
       plateNumber: dto.plateNumber,
-      durationMinutes,
-      fee,
+      durationMinutes: result.bill.duration_minutes,
+      fee: result.bill.amount,
     });
 
-    return { record: updatedRecord, bill };
+    return result;
   }
 
   /**
@@ -165,35 +178,15 @@ export class VehicleService {
   }
 
   /**
-   * 计算停车费用（简化版）
-   * 实际项目中应根据计费规则计算
+   * 释放记录关联的车位（备用方法）
    */
-  private calculateFee(durationMinutes: number, vehicleType: string): number {
-    // 简化计费逻辑：前15分钟免费，之后每小时5元
-    const freeMinutes = 15;
-    const hourlyRate = 5;
-
-    if (durationMinutes <= freeMinutes) {
-      return 0;
-    }
-
-    const chargeableMinutes = durationMinutes - freeMinutes;
-    const hours = Math.ceil(chargeableMinutes / 60);
-    return hours * hourlyRate;
-  }
-
-  /**
-   * 释放记录关联的车位
-   */
-  private async releaseSpaceForRecord(recordId: string): Promise<void> {
+  async releaseSpaceForRecord(recordId: string): Promise<void> {
     try {
-      // 查找关联的车位（通过 current_entry_id）
       const space = await vehicleRepository.findSpaceByEntryId(recordId);
       if (space) {
         await spaceService.releaseSpace(space.id);
       }
     } catch (error) {
-      // 车位释放失败不应影响出场流程
       logger.warn('Failed to release space for record', { recordId, error });
     }
   }

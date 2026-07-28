@@ -1,7 +1,7 @@
 // 车位模块 - 业务逻辑层
 import { spaceRepository, ParkingSpace, SpaceStatus, SpaceType, AvailabilityInfo } from './space.repository.js';
 import { parkingRepository } from './parking.repository.js';
-import { NotFoundError, ConflictError } from '../../shared/types/errors.js';
+import { NotFoundError, ConflictError, ValidationError } from '../../shared/types/errors.js';
 import { logger } from '../../shared/utils/logger.js';
 
 /**
@@ -56,11 +56,11 @@ export class SpaceService {
   }
 
   /**
-   * 批量创建车位
+   * 批量创建车位（带事务 + 编码冲突预校验）
    * 生成如 A-01-001, A-01-002 ... 的编号
    */
   async batchCreate(parkingId: string, dto: BatchCreateSpaceDTO): Promise<ParkingSpace[]> {
-    // 检查停车场是否存在
+    // 1. 检查停车场是否存在
     const parking = await parkingRepository.findById(parkingId);
     if (!parking) {
       throw new NotFoundError('停车场', parkingId);
@@ -69,17 +69,20 @@ export class SpaceService {
     const { zone, floor = 1, startNumber, count, spaceType = 'normal', prefix } = dto;
 
     if (count <= 0 || count > 1000) {
-      throw new Error('批量创建数量必须在 1-1000 之间');
+      throw new ValidationError([
+        { field: 'count', message: '批量创建数量必须在 1-1000 之间' },
+      ]);
     }
 
-    // 生成车位数据
+    // 2. 生成车位数据
     const spaceCodePrefix = prefix || zone;
+    const codes: string[] = [];
     const spaces: Omit<ParkingSpace, 'id' | 'created_at' | 'updated_at'>[] = [];
 
     for (let i = 0; i < count; i++) {
       const number = startNumber + i;
-      // 生成编号格式: A-01-001 (区域-楼层-序号)
       const code = `${spaceCodePrefix}-${String(floor).padStart(2, '0')}-${String(number).padStart(3, '0')}`;
+      codes.push(code);
 
       spaces.push({
         parking_id: parkingId,
@@ -94,8 +97,15 @@ export class SpaceService {
       });
     }
 
+    // 3. 预校验编码冲突（防止事务因唯一约束异常而回滚）
+    const conflicts = await spaceRepository.checkCodeConflicts(parkingId, codes);
+    if (conflicts.length > 0) {
+      throw new ConflictError(`以下车位编码已存在: ${conflicts.join(', ')}`);
+    }
+
     logger.info('Batch creating spaces', { parkingId, zone, count });
 
+    // 4. 通过 RPC 在事务中批量创建
     return spaceRepository.batchCreate(spaces);
   }
 

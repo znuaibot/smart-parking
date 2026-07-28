@@ -1,6 +1,8 @@
 // 车位模块 - 数据访问层
+// 使用 Supabase 原生 .eq('status', expectedStatus) 实现乐观锁
 import { supabase } from '../../shared/database/supabase.js';
 import { logger } from '../../shared/utils/logger.js';
+import { ConflictError } from '../../shared/types/errors.js';
 
 /**
  * 车位状态枚举
@@ -44,6 +46,7 @@ export interface AvailabilityInfo {
 
 /**
  * 车位数据访问层
+ * 乐观锁实现：通过 .eq('status', expectedStatus) 原子条件更新
  */
 export class SpaceRepository {
   private readonly tableName = 'parking_spaces';
@@ -116,13 +119,14 @@ export class SpaceRepository {
   }
 
   /**
-   * 批量创建车位
+   * 批量创建车位（带事务）
+   * 通过 Supabase RPC 实现原子操作
    */
   async batchCreate(spaces: Omit<ParkingSpace, 'id' | 'created_at' | 'updated_at'>[]): Promise<ParkingSpace[]> {
-    const { data, error } = await supabase
-      .from(this.tableName)
-      .insert(spaces)
-      .select();
+    // 使用 RPC 调用在数据库事务中执行批量插入
+    const { data, error } = await supabase.rpc('batch_create_spaces', {
+      spaces_data: spaces,
+    });
 
     if (error) {
       logger.error('Failed to batch create spaces', { error: error.message, count: spaces.length });
@@ -133,46 +137,31 @@ export class SpaceRepository {
   }
 
   /**
-   * 乐观锁更新车位状态
-   * @returns 更新后的车位，如果版本冲突返回 null
+   * 预校验编码是否冲突
+   * @returns 冲突的编码列表
    */
-  async updateStatusWithOptimisticLock(
-    id: string,
-    newStatus: SpaceStatus,
-    expectedVersion: number,
-    additionalUpdates?: Partial<ParkingSpace>,
-  ): Promise<ParkingSpace | null> {
-    // 构建更新数据
-    const updateData: Record<string, any> = {
-      status: newStatus,
-      ...additionalUpdates,
-    };
-
-    // 使用 Supabase 的原子更新实现乐观锁
-    // 注意：由于表上没有 version 字段，我们使用 updated_at 作为乐观锁依据
+  async checkCodeConflicts(
+    parkingId: string,
+    codes: string[],
+  ): Promise<string[]> {
     const { data, error } = await supabase
       .from(this.tableName)
-      .update(updateData)
-      .eq('id', id)
-      .eq('status', expectedVersion === 0 ? 'available' : undefined) // 简化版乐观锁
-      .select()
-      .single();
+      .select('code')
+      .eq('parking_id', parkingId)
+      .in('code', codes);
 
     if (error) {
-      if (error.code === 'PGRST116') {
-        // 未找到记录（版本冲突或已删除）
-        return null;
-      }
-      logger.error('Failed to update space status', { error: error.message, id, newStatus });
+      logger.error('Failed to check code conflicts', { error: error.message, parkingId });
       throw error;
     }
 
-    return data as ParkingSpace;
+    return (data || []).map((row: { code: string }) => row.code);
   }
 
   /**
-   * 更新车位状态（带乐观锁）
-   * 使用原生 SQL 实现严格的乐观锁
+   * 乐观锁原子更新车位状态
+   * 通过 WHERE id = ? AND status = ? 实现 CAS（Compare-And-Swap）
+   * @returns 更新后的车位，乐观锁冲突返回 null
    */
   async updateStatusAtomic(
     id: string,
@@ -180,41 +169,42 @@ export class SpaceRepository {
     expectedStatus: SpaceStatus,
     updates?: { currentPlate?: string | null; currentEntryId?: string | null },
   ): Promise<ParkingSpace | null> {
-    // 构建 SET 子句
-    const setClauses = ['status = $1', 'updated_at = NOW()'];
-    const params: any[] = [newStatus];
-    let paramIndex = 2;
+    // 构建更新数据
+    const updateData: Record<string, any> = {
+      status: newStatus,
+    };
 
     if (updates?.currentPlate !== undefined) {
-      setClauses.push(`current_plate = $${paramIndex++}`);
-      params.push(updates.currentPlate);
+      updateData.current_plate = updates.currentPlate;
     }
     if (updates?.currentEntryId !== undefined) {
-      setClauses.push(`current_entry_id = $${paramIndex++}`);
-      params.push(updates.currentEntryId);
+      updateData.current_entry_id = updates.currentEntryId;
     }
 
-    params.push(id, expectedStatus);
-
-    const sql = `
-      UPDATE parking_spaces 
-      SET ${setClauses.join(', ')}
-      WHERE id = $${paramIndex++} AND status = $${paramIndex}
-      RETURNING *
-    `;
-
-    const { data, error } = await supabase.rpc('exec_raw_sql', { query: sql, params });
+    // 原子条件更新：WHERE id = ? AND status = ?
+    const { data, error } = await supabase
+      .from(this.tableName)
+      .update(updateData)
+      .eq('id', id)
+      .eq('status', expectedStatus)  // 乐观锁条件
+      .select()
+      .single();
 
     if (error) {
-      logger.error('Failed to update space status atomically', { error: error.message, id });
+      if (error.code === 'PGRST116') {
+        // 未找到记录 = 状态已改变（乐观锁冲突）
+        return null;
+      }
+      logger.error('Failed to update space status', {
+        error: error.message,
+        id,
+        newStatus,
+        expectedStatus,
+      });
       throw error;
     }
 
-    if (!data || (Array.isArray(data) && data.length === 0)) {
-      return null; // 乐观锁冲突
-    }
-
-    return (Array.isArray(data) ? data[0] : data) as ParkingSpace;
+    return data as ParkingSpace;
   }
 
   /**

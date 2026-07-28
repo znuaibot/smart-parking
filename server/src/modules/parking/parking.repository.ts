@@ -1,6 +1,7 @@
 // 停车场模块 - 数据访问层
 import { supabase } from '../../shared/database/supabase.js';
 import { logger } from '../../shared/utils/logger.js';
+import { ValidationError } from '../../shared/types/errors.js';
 
 /**
  * 停车场数据对象类型
@@ -30,6 +31,17 @@ export interface PaginatedResult<T> {
 }
 
 /**
+ * 搜索关键字清洗 - 防止 PostgREST 注入
+ * 移除可能被用于注入的特殊字符
+ */
+function sanitizeSearchKeyword(keyword: string): string {
+  return keyword
+    .replace(/[%_,;'"\\]/g, '')  // 移除通配符、分隔符和引号
+    .replace(/[)(\]{}]/g, '')     // 移除括号类字符
+    .trim();
+}
+
+/**
  * 停车场数据访问层
  */
 export class ParkingRepository {
@@ -44,15 +56,19 @@ export class ParkingRepository {
     keyword?: string;
     status?: string;
   }): Promise<PaginatedResult<Parking>> {
-    const { page, pageSize, keyword, status } = params;
+    const { page, pageSize, status, keyword } = params;
     const offset = (page - 1) * pageSize;
 
     // 构建查询
     let query = supabase.from(this.tableName).select('*', { count: 'exact' });
 
-    // 关键字搜索（名称或编码）
+    // 关键字搜索（名称或编码）- 使用清洗后的输入
     if (keyword) {
-      query = query.or(`name.ilike.%${keyword}%,code.ilike.%${keyword}%`);
+      const sanitized = sanitizeSearchKeyword(keyword);
+      if (sanitized.length > 0) {
+        // 使用 ilike 进行不区分大小写的模糊搜索
+        query = query.or(`name.ilike.%${sanitized}%,code.ilike.%${sanitized}%`);
+      }
     }
 
     // 状态筛选

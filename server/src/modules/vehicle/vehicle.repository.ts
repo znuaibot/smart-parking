@@ -340,6 +340,35 @@ export class VehicleRepository {
 
     return data;
   }
+
+  /**
+   * 原子性执行车辆出场（通过数据库 RPC 事务）
+   * 包含：计算费用 → 创建账单 → 更新记录 → 释放车位
+   */
+  async executeVehicleExit(params: {
+    p_plate_number: string;
+    p_parking_id: string;
+    p_exit_gate_id: string | null;
+    p_exit_image_url: string | null;
+    p_operator_id: string | null;
+  }): Promise<{ data: any; error: any }> {
+    const { data, error } = await supabase.rpc('process_vehicle_exit', {
+      p_plate_number: params.p_plate_number,
+      p_parking_id: params.p_parking_id,
+      p_exit_gate_id: params.p_exit_gate_id,
+      p_exit_image_url: params.p_exit_image_url,
+      p_operator_id: params.p_operator_id,
+    });
+
+    if (error) {
+      logger.error('Failed to execute vehicle exit', {
+        error: error.message,
+        plateNumber: params.p_plate_number,
+      });
+    }
+
+    return { data, error };
+  }
 }
 
 // 单例导出
