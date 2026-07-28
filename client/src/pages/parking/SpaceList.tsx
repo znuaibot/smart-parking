@@ -1,19 +1,18 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   Card,
   Select,
-  Input,
   Space,
   Typography,
   Tag,
   Segmented,
   Table,
-  Button,
   message,
 } from 'antd';
 import { AppstoreOutlined, UnorderedListOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { useSearchParams } from 'react-router-dom';
+import { useQuery, useMutation, useQueryClient } from 'react-query';
 import { parkingApi } from '@/api/parking';
 import { spaceApi } from '@/api/space';
 import type { ParkingSpace, SpaceStatus } from '@/types';
@@ -40,74 +39,72 @@ const zoneOptions = [
 const SpaceListPage: React.FC = () => {
   const [searchParams] = useSearchParams();
   const parkingId = searchParams.get('parkingId') || '';
+  const queryClient = useQueryClient();
 
-  const [loading, setLoading] = useState(false);
-  const [spaces, setSpaces] = useState<ParkingSpace[]>([]);
   const [view, setView] = useState<'grid' | 'list'>('grid');
   const [zoneFilter, setZoneFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
-  const [stats, setStats] = useState({ total: 0, available: 0, occupied: 0, reserved: 0, disabled: 0 });
-  const [parkingName, setParkingName] = useState('');
 
-  const fetchSpaces = useCallback(async () => {
-    setLoading(true);
-    try {
+  // Space list query
+  const queryKey = useMemo(
+    () => ['spaces', parkingId, zoneFilter, statusFilter],
+    [parkingId, zoneFilter, statusFilter]
+  );
+
+  const { data, isLoading: loading } = useQuery(
+    queryKey,
+    async () => {
       const params: Record<string, string> = {};
       if (zoneFilter) params.zone = zoneFilter;
       if (statusFilter) params.status = statusFilter;
 
-      let data: ParkingSpace[];
       if (parkingId) {
         const res = await parkingApi.getSpaces(parkingId, params);
-        data = res.data.list;
-        // Try to get parking info from first item
-        setParkingName(parkingId ? `停车场 #${parkingId.slice(0, 8)}` : '');
+        return res.data.list;
       } else {
         const res = await spaceApi.getList(params);
-        data = res.data.list;
+        return res.data.list;
       }
-
-      setSpaces(data);
-
-      // Compute stats
-      setStats({
-        total: data.length,
-        available: data.filter(s => s.status === 'available').length,
-        occupied: data.filter(s => s.status === 'occupied').length,
-        reserved: data.filter(s => s.status === 'reserved').length,
-        disabled: data.filter(s => s.status === 'disabled').length,
-      });
-    } catch {
-      message.error('获取车位列表失败');
-    } finally {
-      setLoading(false);
+    },
+    {
+      keepPreviousData: true,
+      select: (list: ParkingSpace[]) => list,
+      onError: () => message.error('获取车位列表失败'),
     }
-  }, [parkingId, zoneFilter, statusFilter]);
+  );
 
-  useEffect(() => {
-    fetchSpaces();
-  }, [fetchSpaces]);
+  const spaces = data ?? [];
+
+  // Stats computation (derived from query data)
+  const stats = useMemo(() => ({
+    total: spaces.length,
+    available: spaces.filter(s => s.status === 'available').length,
+    occupied: spaces.filter(s => s.status === 'occupied').length,
+    reserved: spaces.filter(s => s.status === 'reserved').length,
+    disabled: spaces.filter(s => s.status === 'disabled').length,
+  }), [spaces]);
+
+  // Status update mutation - 使用 useMutation + invalidateQueries 替代手动状态更新
+  const updateStatusMutation = useMutation(
+    async ({ id, status }: { id: string; status: SpaceStatus }) => {
+      await spaceApi.updateStatus(id, status);
+    },
+    {
+      onSuccess: () => {
+        message.success('状态已更新');
+        // 拉取最新准确数据
+        queryClient.invalidateQueries('spaces');
+      },
+      onError: () => {
+        message.error('更新失败');
+        // 确保前端与后端一致
+        queryClient.invalidateQueries('spaces');
+      },
+    }
+  );
 
   const handleSpaceUpdate = (id: string, status: string) => {
-    setSpaces(prev =>
-      prev.map(s => (s.id === id ? { ...s, status: status as SpaceStatus } : s))
-    );
-    // Update stats
-    setStats(prev => {
-      const space = spaces.find(s => s.id === id);
-      if (!space) return prev;
-      const oldStatus = space.status;
-      const newStats = { ...prev };
-      if (oldStatus === 'available') newStats.available--;
-      if (oldStatus === 'occupied') newStats.occupied--;
-      if (oldStatus === 'reserved') newStats.reserved--;
-      if (oldStatus === 'disabled') newStats.disabled--;
-      if (status === 'available') newStats.available++;
-      if (status === 'occupied') newStats.occupied++;
-      if (status === 'reserved') newStats.reserved++;
-      if (status === 'disabled') newStats.disabled++;
-      return newStats;
-    });
+    updateStatusMutation.mutate({ id, status: status as SpaceStatus });
   };
 
   const columns: ColumnsType<ParkingSpace> = [
@@ -198,9 +195,9 @@ const SpaceListPage: React.FC = () => {
       >
         <Title level={4} style={{ margin: 0 }}>
           车位管理
-          {parkingName && (
+          {parkingId && (
             <Text type="secondary" style={{ fontSize: 14, fontWeight: 400, marginLeft: 8 }}>
-              ({parkingName})
+              (ID: {parkingId.slice(0, 8)}...)
             </Text>
           )}
         </Title>
@@ -278,7 +275,7 @@ const SpaceListPage: React.FC = () => {
       </Space>
 
       {/* Content */}
-      <Card bordered={false} loading={loading}>
+      <Card bordered={false} loading={loading || updateStatusMutation.isLoading}>
         {view === 'grid' ? (
           <SpaceGrid spaces={spaces} onSpaceUpdate={handleSpaceUpdate} />
         ) : (

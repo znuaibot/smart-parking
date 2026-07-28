@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   Card,
   Table,
@@ -19,6 +19,7 @@ import { useQuery, useQueryClient } from 'react-query';
 import { parkingApi } from '@/api/parking';
 import type { Parking, ParkingStatus } from '@/types';
 import ParkingForm from './ParkingForm';
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 
 const { Title } = Typography;
 
@@ -27,6 +28,8 @@ const statusTagMap: Record<ParkingStatus, { color: string; label: string }> = {
   inactive: { color: 'default', label: '停用' },
   suspended: { color: 'warning', label: '暂停' },
 };
+
+const ALL_PAGE_SIZE = 1000; // 用于统计的全量数据请求
 
 const ParkingListPage: React.FC = () => {
   const navigate = useNavigate();
@@ -37,10 +40,25 @@ const ParkingListPage: React.FC = () => {
   const [modalVisible, setModalVisible] = useState(false);
   const [editingParking, setEditingParking] = useState<Parking | null>(null);
 
-  const { data, isLoading: loading } = useQuery(
-    ['parkings-list', page, pageSize, keyword],
+  const debouncedKeyword = useDebouncedValue(keyword, 300);
+
+  // 全量数据查询 —— 用于统计
+  const { data: allData } = useQuery(
+    ['parkings-all', debouncedKeyword],
     async () => {
-      const res = await parkingApi.getList({ page, pageSize, keyword: keyword || undefined });
+      const res = await parkingApi.getList({ page: 1, pageSize: ALL_PAGE_SIZE, keyword: debouncedKeyword || undefined });
+      return res.data.list;
+    },
+    {
+      keepPreviousData: true,
+    }
+  );
+
+  // 分页数据查询 —— 用于表格展示
+  const { data: pageData, isLoading: loading } = useQuery(
+    ['parkings-page', page, pageSize, debouncedKeyword],
+    async () => {
+      const res = await parkingApi.getList({ page, pageSize, keyword: debouncedKeyword || undefined });
       return res.data;
     },
     {
@@ -49,20 +67,25 @@ const ParkingListPage: React.FC = () => {
     }
   );
 
-  const list = data?.list ?? [];
-  const total = data?.total ?? 0;
+  const list = pageData?.list ?? [];
+  const total = pageData?.total ?? 0;
 
-  // Compute aggregate stats
-  const totalSpaces = list.reduce((sum, p) => sum + p.totalSpaces, 0);
-  const availableSpaces = list.reduce((sum, p) => sum + p.availableSpaces, 0);
-  const occupiedSpaces = totalSpaces - availableSpaces;
-  const rate = totalSpaces > 0 ? Math.round((occupiedSpaces / totalSpaces) * 100) : 0;
+  // 统计数据来自全量数据（确保全局准确）
+  const stats = useMemo(() => {
+    const allParkings = allData ?? [];
+    const totalSpaces = allParkings.reduce((sum, p) => sum + p.totalSpaces, 0);
+    const availableSpaces = allParkings.reduce((sum, p) => sum + p.availableSpaces, 0);
+    const occupiedSpaces = totalSpaces - availableSpaces;
+    const rate = totalSpaces > 0 ? Math.round((occupiedSpaces / totalSpaces) * 100) : 0;
+    return { totalSpaces, occupiedSpaces, availableSpaces, rate };
+  }, [allData]);
 
   const handleDelete = async (id: string) => {
     try {
       await parkingApi.delete(id);
       message.success('删除成功');
-      queryClient.invalidateQueries('parkings-list');
+      queryClient.invalidateQueries('parkings-all');
+      queryClient.invalidateQueries('parkings-page');
     } catch {
       message.error('删除失败');
     }
@@ -71,7 +94,8 @@ const ParkingListPage: React.FC = () => {
   const handleFormSuccess = () => {
     setModalVisible(false);
     setEditingParking(null);
-    queryClient.invalidateQueries('parkings-list');
+    queryClient.invalidateQueries('parkings-all');
+    queryClient.invalidateQueries('parkings-page');
   };
 
   const handleEdit = (parking: Parking) => {
@@ -227,10 +251,10 @@ const ParkingListPage: React.FC = () => {
         }}
       >
         {[
-          { label: '总车位', value: totalSpaces, color: '#2c2a26' },
-          { label: '已占用', value: occupiedSpaces, color: '#9a6b4a' },
-          { label: '空闲', value: availableSpaces, color: '#4a8564' },
-          { label: '总使用率', value: `${rate}%`, color: '#b8524a' },
+          { label: '总车位', value: stats.totalSpaces, color: '#2c2a26' },
+          { label: '已占用', value: stats.occupiedSpaces, color: '#9a6b4a' },
+          { label: '空闲', value: stats.availableSpaces, color: '#4a8564' },
+          { label: '总使用率', value: `${stats.rate}%`, color: '#b8524a' },
         ].map(({ label, value, color }) => (
           <Card key={label} bordered={false} size="small" styles={{ body: { padding: '16px 20px' } }}>
             <div style={{ fontSize: 11, fontWeight: 500, color: '#9d9a92', letterSpacing: '0.02em' }}>
@@ -256,11 +280,9 @@ const ParkingListPage: React.FC = () => {
         <Input.Search
           placeholder="搜索停车场名称或编码"
           allowClear
-          enterButton
-          onSearch={(val) => {
-            setKeyword(val);
-            setPage(1);
-          }}
+          value={keyword}
+          onChange={e => setKeyword(e.target.value)}
+          onSearch={setKeyword}
           style={{ maxWidth: 400 }}
         />
       </div>

@@ -1,7 +1,7 @@
 import React from 'react';
 import { Avatar, Dropdown, Button, Breadcrumb, Space, Typography } from 'antd';
 import { LogoutOutlined, UserOutlined, MenuFoldOutlined, MenuUnfoldOutlined } from '@ant-design/icons';
-import { useLocation, Link } from 'react-router-dom';
+import { useLocation, Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 
 interface HeaderProps {
@@ -21,6 +21,7 @@ const pathNameMap: Record<string, string> = {
 
 const Header: React.FC<HeaderProps> = ({ collapsed, onToggle }) => {
   const location = useLocation();
+  const navigate = useNavigate();
   const { user, logout } = useAuth();
 
   const breadcrumbItems = React.useMemo(() => {
@@ -40,9 +41,9 @@ const Header: React.FC<HeaderProps> = ({ collapsed, onToggle }) => {
       key: 'logout',
       icon: <LogoutOutlined />,
       label: '退出登录',
-      onClick: () => {
-        logout();
-        window.location.href = '/login';
+      onClick: async () => {
+        await logout();
+        navigate('/login', { replace: true });
       },
     },
   ];
