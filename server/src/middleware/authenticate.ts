@@ -64,9 +64,12 @@ export async function authenticate(req: Request, res: Response, next: NextFuncti
 
     const user = data.user;
 
-    // 检查用户是否被禁用（Supabase 的 banned_until 字段）
+    // P1-H 修复：检查用户是否被禁用（与当前时间比较，过去时间的封禁视为已解封）
     if (user.banned_until) {
-      throw new AccountDisabledError();
+      const bannedUntil = new Date(user.banned_until);
+      if (bannedUntil > new Date()) {
+        throw new AccountDisabledError();
+      }
     }
 
     // 从 profiles 表获取用户角色和停车场分配
@@ -131,6 +134,7 @@ export function requireRole(...allowedRoles: string[]) {
 /**
  * 停车场权限校验中间件
  * 校验当前用户是否有权限操作指定的停车场
+ * P0-A 修复：显式拒绝 parkingId 为空的非管理员用户，防止短路绕过
  */
 export function requireParkingAccess(req: Request, _res: Response, next: NextFunction) {
   if (!req.user) {
@@ -149,8 +153,14 @@ export function requireParkingAccess(req: Request, _res: Response, next: NextFun
     return next(new ForbiddenError('缺少停车场 ID'));
   }
 
+  // P0-A 修复：显式拒绝 parkingId 为空的非管理员用户
+  // 防止 cashier/operator 未分配停车场时短路放行
+  if (!req.user.parkingId) {
+    return next(new ForbiddenError('用户未分配停车场，无权操作'));
+  }
+
   // 检查用户是否属于该停车场
-  if (req.user.parkingId && req.user.parkingId !== parkingId) {
+  if (req.user.parkingId !== parkingId) {
     return next(new ForbiddenError('无权操作此停车场'));
   }
 

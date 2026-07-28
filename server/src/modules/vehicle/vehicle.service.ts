@@ -4,7 +4,7 @@ import { vehicleRepository, VehicleEntryRecord, Bill } from './vehicle.repositor
 import { lprService, LPRResult } from './lpr.service.js';
 import { parkingRepository } from '../parking/parking.repository.js';
 import { VehicleEntryDTO, VehicleExitDTO, ListVehicleRecordsQuery, VehicleOngoingQuery } from './vehicle.dto.js';
-import { NotFoundError, ConflictError } from '../../shared/types/errors.js';
+import { NotFoundError, ConflictError, ForbiddenError } from '../../shared/types/errors.js';
 import { logger } from '../../shared/utils/logger.js';
 
 /**

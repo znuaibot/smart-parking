@@ -154,55 +154,10 @@ export class SpaceRepository {
 
     const result = data as any;
 
-    // 查询创建的车位返回
-    const { data: createdSpaces } = await supabase
-      .from(this.tableName)
-      .select('*')
-      .eq('parking_id', parkingId)
-      .order('code', { ascending: true });
-
     return {
       created: result?.created_count || 0,
-      results: (createdSpaces || []) as ParkingSpace[],
+      results: result?.spaces || [],
     };
-  }
-
-  /**
-   * 乐观锁更新车位状态
-   * @returns 更新后的车位，如果版本冲突返回 null
-   */
-  async updateStatusWithOptimisticLock(
-    id: string,
-    newStatus: SpaceStatus,
-    expectedVersion: number,
-    additionalUpdates?: Partial<ParkingSpace>,
-  ): Promise<ParkingSpace | null> {
-    // 构建更新数据
-    const updateData: Record<string, any> = {
-      status: newStatus,
-      ...additionalUpdates,
-    };
-
-    // 使用 Supabase 的原子更新实现乐观锁
-    // 注意：由于表上没有 version 字段，我们使用 updated_at 作为乐观锁依据
-    const { data, error } = await supabase
-      .from(this.tableName)
-      .update(updateData)
-      .eq('id', id)
-      .eq('status', expectedVersion === 0 ? 'available' : undefined) // 简化版乐观锁
-      .select()
-      .single();
-
-    if (error) {
-      if (error.code === 'PGRST116') {
-        // 未找到记录（版本冲突或已删除）
-        return null;
-      }
-      logger.error('Failed to update space status', { error: error.message, id, newStatus });
-      throw error;
-    }
-
-    return data as ParkingSpace;
   }
 
   /**

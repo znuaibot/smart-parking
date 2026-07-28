@@ -53,10 +53,22 @@ export class VehicleController {
   /**
    * GET /api/v1/vehicle-records
    * 进出记录列表
+   * P0-B 修复：非管理员用户只能查看自己停车场的记录
    */
   async listRecords(req: Request, res: Response, next: NextFunction) {
     try {
       const query = ListVehicleRecordsQuerySchema.parse(req.query);
+      
+      // P0-B 修复：租户隔离 - 非管理员只能查看自己停车场的数据
+      const userParkingId = req.user?.parkingId;
+      const userRole = req.user?.role;
+      
+      // superadmin 和 admin 可以查看所有停车场
+      if (userRole !== 'superadmin' && userRole !== 'admin') {
+        // 强制过滤为用户所属停车场
+        query.parkingId = userParkingId;
+      }
+      
       const result = await vehicleService.listRecords(query);
 
       res.json({
@@ -72,11 +84,24 @@ export class VehicleController {
   /**
    * GET /api/v1/vehicle-records/:id
    * 进出记录详情
+   * P0-B 修复：校验记录所属停车场
    */
   async getRecordById(req: Request, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
+      
+      // P0-B 修复：先查询记录，校验所属停车场
       const record = await vehicleService.getRecordById(id);
+      
+      const userParkingId = req.user?.parkingId;
+      const userRole = req.user?.role;
+      
+      // superadmin 和 admin 可以查看所有记录
+      if (userRole !== 'superadmin' && userRole !== 'admin') {
+        if (record.parking_id !== userParkingId) {
+          throw new Error('无权查看此记录');
+        }
+      }
 
       res.json({
         code: 'SUCCESS',
@@ -102,6 +127,15 @@ export class VehicleController {
       });
 
       const query = querySchema.parse({ ...req.query, plateNumber: plate });
+      
+      // P0-B 修复：租户隔离
+      const userParkingId = req.user?.parkingId;
+      const userRole = req.user?.role;
+      
+      if (userRole !== 'superadmin' && userRole !== 'admin') {
+        query.parkingId = userParkingId;
+      }
+      
       const result = await vehicleService.getOngoingVehicles(query);
 
       res.json({

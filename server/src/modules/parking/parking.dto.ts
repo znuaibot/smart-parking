@@ -37,6 +37,7 @@ export const ListParkingQuerySchema = z.object({
   pageSize: z.coerce.number().int().positive().max(100).default(20),
   keyword: z.string().optional(),
   status: z.enum(['active', 'inactive', 'suspended']).optional(),
+  parkingId: z.string().uuid().optional(),
 });
 
 // 类型导出

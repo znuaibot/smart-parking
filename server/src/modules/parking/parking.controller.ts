@@ -14,11 +14,23 @@ export class ParkingController {
   /**
    * GET /api/v1/parkings
    * 获取停车场列表
+   * P0-D 修复：非管理员只能查看自己所属的停车场
    */
   async list(req: Request, res: Response, next: NextFunction) {
     try {
-      // 校验查询参数
       const query = ListParkingQuerySchema.parse(req.query);
+      
+      // P0-D 修复：租户隔离 - 非管理员只能查看自己所属的停车场
+      const userParkingId = req.user?.parkingId;
+      const userRole = req.user?.role;
+      
+      if (userRole !== 'superadmin' && userRole !== 'admin') {
+        // 非管理员只能查看自己所属的停车场
+        if (userParkingId) {
+          query.parkingId = userParkingId;
+        }
+      }
+      
       const result = await parkingService.list(query);
 
       res.json({

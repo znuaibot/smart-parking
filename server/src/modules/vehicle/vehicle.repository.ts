@@ -224,11 +224,18 @@ export class VehicleRepository {
       throw error;
     }
 
-    if (!data) {
-      throw new Error('出场处理返回空结果');
+    // 检查 RPC 返回的业务错误
+    const result = data as any;
+    if (result?.error) {
+      if (result.error === 'NOT_FOUND') {
+        throw new Error('未找到指定的在场记录或记录已出场');
+      }
+      if (result.error === 'NO_BILLING_RULE') {
+        throw new Error(result.message || '停车场未配置计费规则');
+      }
+      throw new Error(result.message || '出场处理失败');
     }
 
-    const result = data as any;
     return {
       billId: result.bill_id,
       durationMinutes: result.duration_minutes,
@@ -237,39 +244,6 @@ export class VehicleRepository {
       exitTime: result.exit_time,
       spaceReleased: result.space_released,
     };
-  }
-
-  /**
-   * 更新记录为出场状态
-   * @deprecated 请使用 processExitAtomic 代替（P0 原子性修复）
-   */
-  async updateToExited(
-    id: string,
-    params: {
-      exitTime: string;
-      exitGateId?: string;
-      exitImageUrl?: string;
-    },
-  ): Promise<VehicleEntryRecord> {
-    const { data, error } = await supabase
-      .from(this.recordsTable)
-      .update({
-        exit_time: params.exitTime,
-        exit_gate_id: params.exitGateId,
-        exit_image_url: params.exitImageUrl,
-        status: 'exited',
-      })
-      .eq('id', id)
-      .eq('status', 'parked')
-      .select()
-      .single();
-
-    if (error) {
-      logger.error('Failed to update record to exited', { error: error.message, id });
-      throw error;
-    }
-
-    return data as VehicleEntryRecord;
   }
 
   /**

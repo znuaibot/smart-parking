@@ -2,6 +2,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { spaceService, BatchCreateSpaceDTO, UpdateSpaceStatusDTO } from './space.service.js';
 import { z } from 'zod';
+import { ForbiddenError } from '../../shared/types/errors.js';
 
 /**
  * 车位控制器
@@ -10,6 +11,7 @@ export class SpaceController {
   /**
    * GET /api/v1/parking-spaces
    * 车位列表（跨停车场查询）
+   * P0-C 修复：非管理员只能查看自己停车场的车位
    */
   async list(req: Request, res: Response, next: NextFunction) {
     try {
@@ -23,6 +25,15 @@ export class SpaceController {
       });
 
       const query = querySchema.parse(req.query);
+      
+      // P0-C 修复：租户隔离 - 非管理员只能查看自己停车场
+      const userParkingId = req.user?.parkingId;
+      const userRole = req.user?.role;
+      
+      if (userRole !== 'superadmin' && userRole !== 'admin') {
+        query.parkingId = userParkingId;
+      }
+
       const result = await spaceService.list(query);
 
       res.json({
@@ -38,11 +49,24 @@ export class SpaceController {
   /**
    * GET /api/v1/parking-spaces/:id
    * 车位详情
+   * P0-C 修复：校验车位所属停车场
    */
   async getById(req: Request, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
+      
+      // 先查询车位
       const space = await spaceService.getById(id);
+      
+      // P0-C 修复：校验车位所属停车场
+      const userParkingId = req.user?.parkingId;
+      const userRole = req.user?.role;
+      
+      if (userRole !== 'superadmin' && userRole !== 'admin') {
+        if (!userParkingId || space.parking_id !== userParkingId) {
+          throw new ForbiddenError('无权查看此车位');
+        }
+      }
 
       res.json({
         code: 'SUCCESS',
@@ -87,6 +111,7 @@ export class SpaceController {
   /**
    * PUT /api/v1/parking-spaces/:id/status
    * 更新车位状态（乐观锁）
+   * P0-C 修复：校验车位所属停车场
    */
   async updateStatus(req: Request, res: Response, next: NextFunction) {
     try {
@@ -100,12 +125,25 @@ export class SpaceController {
       });
 
       const dto = bodySchema.parse(req.body);
-      const space = await spaceService.updateStatus(id, dto);
+      
+      // P0-C 修复：先查询车位，校验所属停车场
+      const space = await spaceService.getById(id);
+      
+      const userParkingId = req.user?.parkingId;
+      const userRole = req.user?.role;
+      
+      if (userRole !== 'superadmin' && userRole !== 'admin') {
+        if (!userParkingId || space.parking_id !== userParkingId) {
+          throw new ForbiddenError('无权操作此车位');
+        }
+      }
+      
+      const updatedSpace = await spaceService.updateStatus(id, dto);
 
       res.json({
         code: 'SUCCESS',
         message: '状态更新成功',
-        data: space,
+        data: updatedSpace,
       });
     } catch (error) {
       next(error);
