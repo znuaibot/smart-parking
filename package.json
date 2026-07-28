@@ -24,7 +24,8 @@
   ],
   "devDependencies": {
     "concurrently": "^8.2.2",
-    "supabase": "^1.142.0"
+    "supabase": "^1.142.0",
+    "typescript": "^7.0.2"
   },
   "engines": {
     "node": ">=20.0.0",
@@ -34,7 +35,12 @@
     "type": "git",
     "url": "https://github.com/znuaibot/smart-parking.git"
   },
-  "keywords": ["parking", "management", "supabase", "postgresql"],
+  "keywords": [
+    "parking",
+    "management",
+    "supabase",
+    "postgresql"
+  ],
   "author": "Parking Architect Team",
   "license": "MIT"
 }
