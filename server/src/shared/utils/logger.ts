@@ -4,7 +4,10 @@
 import pino from 'pino';
 import { config } from '../../config/index.js';
 
-export const logger = pino({
+// 兼容 pino 默认导入类型
+const pinoFactory = pino as unknown as (opts?: pino.LoggerOptions) => pino.Logger;
+
+export const logger = pinoFactory({
   level: config.LOG_LEVEL,
   transport: config.NODE_ENV === 'development' 
     ? { target: 'pino-pretty', options: { colorize: true, translateTime: 'yyyy-mm-dd HH:MM:ss.l' } }
@@ -110,7 +113,7 @@ export function logAPICall(
  * @param details 详情
  */
 export function logAuthEvent(
-  event: 'login' | 'logout' | 'refresh' | 'failed',
+  event: 'login' | 'logout' | 'refresh' | 'failed' | 'password_change',
   details: {
     userId?: string;
     email?: string;

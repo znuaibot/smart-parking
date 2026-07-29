@@ -10,25 +10,16 @@ export function requestId(req: Request, res: Response, next: NextFunction) {
   next();
 }
 
-// Express 类型扩展
-// eslint-disable-next-line @typescript-eslint/no-namespace
-declare global {
-  interface ExpressRequest extends Express.Request {
-    requestId: string;
-    user?: {
-      id: string;
-      role: string;
-    };
-  }
-}
-
-// eslint-disable-next-line @typescript-eslint/no-namespace
-declare namespace Express {
+// Express 类型扩展 - 使用 ES2015 模块语法替代 namespace
+import 'express';
+declare module 'express-serve-static-core' {
   interface Request {
     requestId: string;
     user?: {
       id: string;
-      role: string;
+      role: 'superadmin' | 'admin' | 'operator' | 'cashier';
+      email?: string;
+      parkingId?: string;
     };
   }
 }

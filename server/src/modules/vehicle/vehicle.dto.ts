@@ -54,6 +54,9 @@ export const ListVehicleRecordsQuerySchema = z.object({
  */
 export const VehicleOngoingQuerySchema = z.object({
   parkingId: z.string().uuid().optional(),
+  plateNumber: z.string().optional(),
+  page: z.coerce.number().int().positive().optional(),
+  pageSize: z.coerce.number().int().positive().max(100).optional(),
 });
 
 // 类型导出

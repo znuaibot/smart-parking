@@ -174,8 +174,8 @@ export class VehicleService {
     return vehicleRepository.listOngoing({
       parkingId: query.parkingId,
       plateNumber: query.plateNumber,
-      page: query.page,
-      pageSize: query.pageSize,
+      page: query.page ?? 1,
+      pageSize: query.pageSize ?? 20,
     });
   }
 

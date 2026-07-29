@@ -14,13 +14,12 @@
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
-    "baseUrl": "./src",
     "paths": {
-      "@/*": ["./*"],
-      "@shared/*": ["./shared/*"],
-      "@modules/*": ["./modules/*"],
-      "@middleware/*": ["./middleware/*"],
-      "@config/*": ["./config/*"]
+      "@/*": ["./src/*"],
+      "@shared/*": ["./src/shared/*"],
+      "@modules/*": ["./src/modules/*"],
+      "@middleware/*": ["./src/middleware/*"],
+      "@config/*": ["./src/config/*"]
     }
   },
   "include": ["src/**/*"],

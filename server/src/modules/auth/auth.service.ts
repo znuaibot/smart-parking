@@ -73,6 +73,7 @@ export class AuthService {
     role: 'superadmin' | 'admin' | 'operator' | 'cashier';
     parkingId?: string;
     isActive: boolean;
+    email?: string;
     displayName?: string;
     avatarUrl?: string;
     phone?: string;
