@@ -125,23 +125,13 @@ export class VehicleService {
 
       // 2. 使用原子化 RPC 处理出场（创建账单、更新记录、释放车位在同一事务中）
       // 如果此步骤失败（如已有出场记录），数据库会回滚所有操作
+      // 注意：错误检查已在 vehicle.repository.ts 的 processExitAtomic 中处理
       const result = await vehicleRepository.processExitAtomic({
         recordId: record.id,
         exitGateId: dto.exitGateId,
         exitImageUrl: dto.exitImageUrl,
         operatorId: dto.operatorId,
       });
-
-      // 检查 RPC 返回的错误
-      if (result && 'error' in result && result.error) {
-        if (result.error === 'NO_BILLING_RULE') {
-          throw new Error('停车场未配置计费规则');
-        }
-        if (result.error === 'NOT_FOUND') {
-          throw new Error('未找到指定的在场记录或记录已出场');
-        }
-        throw new Error(result.message || '出场处理失败');
-      }
 
       // 3. 查询更新后的记录和账单用于返回
       const updatedRecord = await vehicleRepository.findById(record.id);
