@@ -362,11 +362,7 @@ describe('Auth Interceptor - isRefreshing 并发时序', () => {
     });
     localStorage.setItem('refreshToken', 'old-refresh');
 
-    try {
-      await client.get('/test');
-    } catch {
-      // 忽略后续错误
-    }
+    await client.get('/test').catch(() => {});
 
     expect(mockSetAccessToken).toHaveBeenCalledWith('brand-new-access');
   });

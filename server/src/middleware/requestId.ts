@@ -11,6 +11,7 @@ export function requestId(req: Request, res: Response, next: NextFunction) {
 }
 
 // Express 类型扩展
+// eslint-disable-next-line @typescript-eslint/no-namespace
 declare global {
   interface ExpressRequest extends Express.Request {
     requestId: string;

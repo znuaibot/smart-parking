@@ -1,6 +1,5 @@
 import React from 'react';
 import { Card, Typography, Progress, Row, Col, Space, Statistic } from 'antd';
-import { ArrowUpOutlined, ArrowDownOutlined } from '@ant-design/icons';
 
 const { Text } = Typography;
 
@@ -32,7 +31,7 @@ const AvailabilityCard: React.FC<AvailabilityCardProps> = ({
   };
 
   return (
-    <Card loading={loading} bordered={false} styles={{ body: { padding: 24 }}>
+    <Card loading={loading} bordered={false} styles={{ body: { padding: 24 } }}>
       <Space direction="vertical" size={16} style={{ width: '100%' }}>
         <div>
           <Text type="secondary" style={{ fontSize: 12, fontWeight: 500, letterSpacing: '0.03em' }}>
