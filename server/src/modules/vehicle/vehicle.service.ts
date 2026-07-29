@@ -125,6 +125,7 @@ export class VehicleService {
 
       // 2. 使用原子化 RPC 处理出场（创建账单、更新记录、释放车位在同一事务中）
       // 如果此步骤失败（如已有出场记录），数据库会回滚所有操作
+      // 注意：错误检查已在 vehicle.repository.ts 的 processExitAtomic 中处理
       const result = await vehicleRepository.processExitAtomic({
         recordId: record.id,
         exitGateId: dto.exitGateId,

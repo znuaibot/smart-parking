@@ -55,7 +55,7 @@ class ErrorBoundary extends React.Component<Props, State> {
               </Button>
             }
           >
-            {process.env.NODE_ENV === 'development' && this.state.error && (
+            {import.meta.env.DEV && this.state.error && (
               <div style={{ maxWidth: 500, margin: '16px auto', textAlign: 'left' }}>
                 <Paragraph>
                   <Text strong>错误详情：</Text>

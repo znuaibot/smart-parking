@@ -214,9 +214,10 @@ export class AuthService {
       const redis = await this.getRedis();
       if (redis && redis.isAvailable()) {
         if (refreshToken) {
-          await redis.blacklistTokenPair(accessToken, refreshToken);
+          await redis.blacklistToken(accessToken, 3600);
+          await redis.blacklistToken(refreshToken, 604800);
         } else {
-          await redis.blacklistToken(accessToken);
+          await redis.blacklistToken(accessToken, 3600);
         }
       }
 

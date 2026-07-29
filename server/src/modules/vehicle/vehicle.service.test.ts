@@ -4,7 +4,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Request, Response, NextFunction } from 'express';
 
-// 使用 vi.hoisted 确保 mock 对象在 vi.mock 提升前初始化
+// 使用 vi.hoisted 解决 vi.mock 提升问题
 const { mockVehicleRepository, mockParkingRepository, mockLprService } = vi.hoisted(() => ({
   mockVehicleRepository: {
     findOngoingByPlate: vi.fn(),
@@ -112,10 +112,10 @@ describe('VehicleService - 租户隔离测试', () => {
       };
 
       mockVehicleRepository.findOngoingByPlate.mockResolvedValue(mockRecord);
-      mockVehicleRepository.processExitAtomic.mockResolvedValue({
-        error: 'NOT_FOUND',
-        message: '未找到指定的在场记录或记录已出场',
-      });
+      // 真实 repository 会抛出异常，mock 也应该模拟这个行为
+      mockVehicleRepository.processExitAtomic.mockRejectedValue(
+        new Error('未找到指定的在场记录或记录已出场')
+      );
 
       await expect(
         vehicleService.recordExit({
@@ -134,10 +134,10 @@ describe('VehicleService - 租户隔离测试', () => {
       };
 
       mockVehicleRepository.findOngoingByPlate.mockResolvedValue(mockRecord);
-      mockVehicleRepository.processExitAtomic.mockResolvedValue({
-        error: 'NO_BILLING_RULE',
-        message: '停车场未配置计费规则',
-      });
+      // 真实 repository 会抛出异常，mock 也应该模拟这个行为
+      mockVehicleRepository.processExitAtomic.mockRejectedValue(
+        new Error('停车场未配置计费规则')
+      );
 
       await expect(
         vehicleService.recordExit({

@@ -6,24 +6,19 @@ export default defineConfig({
     alias: {
       '@': path.resolve(__dirname, './src'),
       '@shared': path.resolve(__dirname, './src/shared'),
-      '@modules': path.resolve(__dirname, './src/modules'),
-      '@middleware': path.resolve(__dirname, './src/middleware'),
-      '@config': path.resolve(__dirname, './src/config'),
     },
   },
   test: {
     include: ['src/**/*.test.ts', 'src/**/*.spec.ts'],
     globals: true,
     passWithNoTests: true,
-    setupFiles: [path.resolve(__dirname, '../vitest.setup.ts')],
+    setupFiles: [path.resolve(__dirname, 'vitest.setup.ts')],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
       include: ['src/**/*.ts'],
-      exclude: ['src/**/*.test.ts', 'src/**/*.spec.ts', 'src/types/**'],
+      exclude: ['src/**/*.test.ts', 'src/**/*.spec.ts', 'src/index.ts'],
     },
-    deps: {
-      interopDefault: true,
-    },
+    deps: { interopDefault: true },
   },
 });
