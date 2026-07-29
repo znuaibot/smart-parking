@@ -64,27 +64,23 @@ const createMockClient = (
 ) => {
   const client = axios.create({ baseURL: '/api/v1' });
   client.defaults.adapter = async (config: AxiosRequestConfig) => {
-    try {
-      const result = await handler(config);
-      if (result && typeof result === 'object' && 'status' in result) {
-        return {
-          data: (result as { data: unknown }).data,
-          status: (result as { status: number }).status,
-          statusText: result.status === 200 ? 'OK' : 'Error',
-          headers: {},
-          config,
-        };
-      }
+    const result = await handler(config);
+    if (result && typeof result === 'object' && 'status' in result) {
       return {
-        data: result,
-        status: 200,
-        statusText: 'OK',
+        data: (result as { data: unknown }).data,
+        status: (result as { status: number }).status,
+        statusText: result.status === 200 ? 'OK' : 'Error',
         headers: {},
         config,
       };
-    } catch (err) {
-      throw err;
     }
+    return {
+      data: result,
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      config,
+    };
   };
   return client;
 };
