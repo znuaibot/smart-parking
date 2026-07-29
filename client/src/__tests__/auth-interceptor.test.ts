@@ -11,7 +11,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import axios from 'axios';
 import type { AxiosRequestConfig } from 'axios';
 
-// 模拟 localStorage
+// 模拟 localStorage (运行于 Node 环境)
 const localStorageMock = (() => {
   let store: Record<string, string> = {};
   return {
@@ -21,7 +21,8 @@ const localStorageMock = (() => {
     clear: () => { store = {}; },
   };
 })();
-Object.defineProperty(window, 'localStorage', { value: localStorageMock });
+// 使用 Vitest 提供的全局 stub（兼容 Node 测试环境）
+vi.stubGlobal('localStorage', localStorageMock);
 
 // 模拟 authApi
 vi.mock('@/api/auth', () => ({
