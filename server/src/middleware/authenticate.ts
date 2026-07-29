@@ -10,6 +10,7 @@ import { supabase } from '../shared/database/supabase.js';
 import { UnauthorizedError, TokenExpiredError, AccountDisabledError, ForbiddenError } from '../shared/types/errors.js';
 import { logger, logAuthEvent } from '../shared/utils/logger.js';
 import { RedisTokenBlacklist } from '../shared/utils/redis.js';
+import pathToRegexp from 'path-to-regexp';
 
 // 公开路径白名单（不需要鉴权）- 使用 RegExp 精确匹配
 const PUBLIC_PATTERNS = [

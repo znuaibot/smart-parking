@@ -4,25 +4,49 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Request, Response, NextFunction } from 'express';
 
-// Mock Supabase client
-const mockSupabase = {
-  auth: {
-    admin: {
-      getUser: vi.fn(),
-    },
-  },
-  from: vi.fn(() => ({
+// 使用 vi.hoisted 解决 vi.mock 提升问题
+const { mockSupabase, mockQueryChain } = vi.hoisted(() => {
+  const chain = {
     select: vi.fn().mockReturnThis(),
     eq: vi.fn().mockReturnThis(),
     single: vi.fn(),
-  })),
-};
+  };
+  return {
+    mockQueryChain: chain,
+    mockSupabase: {
+      auth: {
+        admin: {
+          getUser: vi.fn(),
+        },
+      },
+      from: vi.fn(() => chain),
+    },
+  };
+});
 
 vi.mock('../shared/database/supabase.js', () => ({
   supabase: mockSupabase,
   default: mockSupabase,
   getSupabase: () => mockSupabase,
   getAnonClient: () => mockSupabase,
+}));
+
+// Mock Redis 黑名单
+vi.mock('../shared/utils/redis.js', () => ({
+  RedisTokenBlacklist: {
+    getInstance: vi.fn().mockResolvedValue({
+      isBlacklisted: vi.fn().mockResolvedValue(false), // 测试中默认 token 不在黑名单
+      blacklistToken: vi.fn().mockResolvedValue(undefined),
+      blacklistTokenPair: vi.fn().mockResolvedValue(undefined),
+      isAvailable: vi.fn().mockReturnValue(false),
+    }),
+  },
+  UserSessionCache: {
+    getInstance: vi.fn().mockResolvedValue({
+      getUser: vi.fn().mockResolvedValue(null),
+      setUser: vi.fn().mockResolvedValue(undefined),
+    }),
+  },
 }));
 
 // 导入被测函数（注意：mock 需要在导入前设置）
@@ -52,13 +76,13 @@ describe('authenticate middleware', () => {
   });
 
   it('白名单路径应直接放行', async () => {
-    const req = { originalUrl: '/health', headers: {} } as Request;
+    const req = { path: '/health', originalUrl: '/health', headers: {} } as Request;
     await authenticate(req, res, next);
     expect(next).toHaveBeenCalledWith();
   });
 
   it('缺少 Authorization 头应返回 401', async () => {
-    const req = { originalUrl: '/api/test', headers: {} } as Request;
+    const req = { path: '/api/test', originalUrl: '/api/test', headers: {} } as Request;
     await authenticate(req, res, next);
     expect(next).toHaveBeenCalled();
     const error = (next as any).mock.calls[0][0];
@@ -67,6 +91,7 @@ describe('authenticate middleware', () => {
 
   it('Token 过短应返回 401', async () => {
     const req = {
+      path: '/api/test',
       originalUrl: '/api/test',
       headers: { authorization: 'Bearer short' },
     } as Request;
@@ -83,6 +108,7 @@ describe('authenticate middleware', () => {
     });
 
     const req = {
+      path: '/api/test',
       originalUrl: '/api/test',
       headers: { authorization: 'Bearer validtoken123456789012345' },
     } as Request;
@@ -100,6 +126,7 @@ describe('authenticate middleware', () => {
     });
 
     const req = {
+      path: '/api/test',
       originalUrl: '/api/test',
       headers: { authorization: 'Bearer validtoken123456789012345' },
     } as Request;
@@ -115,12 +142,13 @@ describe('authenticate middleware', () => {
       data: { user: { id: 'user-123', email: 'test@test.com', banned_until: null } },
       error: null,
     });
-    mockSupabase.from().single.mockResolvedValue({
+    mockQueryChain.single.mockResolvedValue({
       data: null,
       error: { code: 'PGRST116' },
     });
 
     const req = {
+      path: '/api/test',
       originalUrl: '/api/test',
       headers: { authorization: 'Bearer validtoken123456789012345' },
       ip: '127.0.0.1',
@@ -139,12 +167,13 @@ describe('authenticate middleware', () => {
       data: { user: { id: 'user-123', email: 'test@test.com', banned_until: pastDate } },
       error: null,
     });
-    mockSupabase.from().single.mockResolvedValue({
-      data: { role: 'operator', status: 'active', parking_id: 'park-123' },
+    mockQueryChain.single.mockResolvedValue({
+      data: { role: 'operator', is_active: true, parking_id: 'park-123' },
       error: null,
     });
 
     const req = {
+      path: '/api/test',
       originalUrl: '/api/test',
       headers: { authorization: 'Bearer validtoken123456789012345' },
       ip: '127.0.0.1',
@@ -168,6 +197,7 @@ describe('authenticate middleware', () => {
     });
 
     const req = {
+      path: '/api/test',
       originalUrl: '/api/test',
       headers: { authorization: 'Bearer validtoken123456789012345' },
       ip: '127.0.0.1',

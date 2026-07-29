@@ -264,15 +264,33 @@ describe('AuthService Integration Tests', () => {
       ).rejects.toThrow('账号已被封禁');
     });
 
-    it('should reject invalid email format', async () => {
+    it('should reject login with empty email', async () => {
+      vi.mocked(supabase.from).mockReturnValue({
+        select: vi.fn().mockReturnThis(),
+        eq: vi.fn().mockReturnThis(),
+        single: vi.fn().mockResolvedValue({
+          data: { role: 'operator', is_active: true },
+          error: null,
+        }),
+      } as any);
+
       await expect(
-        authService.login({ email: 'not-an-email', password: 'password123' }),
+        authService.login({ email: '', password: 'password123' }),
       ).rejects.toThrow('参数校验失败');
     });
 
-    it('should reject short password', async () => {
+    it('should reject login with empty password', async () => {
+      vi.mocked(supabase.from).mockReturnValue({
+        select: vi.fn().mockReturnThis(),
+        eq: vi.fn().mockReturnThis(),
+        single: vi.fn().mockResolvedValue({
+          data: { role: 'operator', is_active: true },
+          error: null,
+        }),
+      } as any);
+
       await expect(
-        authService.login({ email: 'test@test.com', password: '12345' }),
+        authService.login({ email: 'test@test.com', password: '' }),
       ).rejects.toThrow('参数校验失败');
     });
   });

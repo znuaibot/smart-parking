@@ -132,6 +132,17 @@ export class VehicleService {
         operatorId: dto.operatorId,
       });
 
+      // 检查 RPC 返回的错误
+      if (result && 'error' in result && result.error) {
+        if (result.error === 'NO_BILLING_RULE') {
+          throw new Error('停车场未配置计费规则');
+        }
+        if (result.error === 'NOT_FOUND') {
+          throw new Error('未找到指定的在场记录或记录已出场');
+        }
+        throw new Error(result.message || '出场处理失败');
+      }
+
       // 3. 查询更新后的记录和账单用于返回
       const updatedRecord = await vehicleRepository.findById(record.id);
       const bill = await vehicleRepository.findBillByRecordId(record.id);

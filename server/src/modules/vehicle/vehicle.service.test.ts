@@ -4,21 +4,21 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Request, Response, NextFunction } from 'express';
 
-// Mock 依赖
-const mockVehicleRepository = {
-  findOngoingByPlate: vi.fn(),
-  findById: vi.fn(),
-  findBillByRecordId: vi.fn(),
-  processExitAtomic: vi.fn(),
-};
-
-const mockParkingRepository = {
-  findById: vi.fn(),
-};
-
-const mockLprService = {
-  recognize: vi.fn(),
-};
+// 使用 vi.hoisted 解决 vi.mock 提升问题
+const { mockVehicleRepository, mockParkingRepository, mockLprService } = vi.hoisted(() => ({
+  mockVehicleRepository: {
+    findOngoingByPlate: vi.fn(),
+    findById: vi.fn(),
+    findBillByRecordId: vi.fn(),
+    processExitAtomic: vi.fn(),
+  },
+  mockParkingRepository: {
+    findById: vi.fn(),
+  },
+  mockLprService: {
+    recognize: vi.fn(),
+  },
+}));
 
 vi.mock('./vehicle.repository.js', () => ({
   vehicleRepository: mockVehicleRepository,
