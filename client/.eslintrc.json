@@ -42,11 +42,6 @@
   "ignorePatterns": [
     "dist/",
     "node_modules/",
-    "coverage/",
-    "**/*.config.ts",
-    "**/*.config.js",
-    "**/*.test.ts",
-    "**/*.spec.ts",
-    "vite.config.ts"
+    "coverage/"
   ]
 }

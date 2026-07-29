@@ -126,9 +126,12 @@ export async function withRetry<T>(
  */
 export async function testConnection(): Promise<boolean> {
   try {
+    if (!supabaseInstance) {
+      throw new Error('Supabase instance not initialized');
+    }
     const startTime = Date.now();
     const { error } = await supabaseInstance
-      ?.from('parkings')
+      .from('parkings')
       .select('id')
       .limit(1);
     const duration = Date.now() - startTime;

@@ -5,7 +5,7 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
-import { config } from './config/index.js';
+import { config, isTest } from './config/index.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import { requestId } from './middleware/requestId.js';
 import { authenticate } from './middleware/authenticate.js';
@@ -29,13 +29,13 @@ app.use(helmet({
   crossOriginResourcePolicy: { policy: 'cross-origin' },
 }));
 app.use(cors({
-  origin: config.corsOrigins,
+  origin: config.CORS_ORIGINS,
   credentials: true,
 }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(requestId);
-app.use(morgan(config.isTest ? 'dev' : 'combined'));
+app.use(morgan(isTest ? 'dev' : 'combined'));
 app.use(rateLimiter);
 app.use(performanceMonitor);
 
@@ -86,14 +86,14 @@ app.use(notFoundHandler);
 app.use(errorHandler);
 
 // ==================== 启动服务 ====================
-const server = app.listen(config.port, () => {
+const server = app.listen(config.PORT, () => {
   console.log(`
 ╔═══════════════════════════════════════════════════════╗
 ║     🚗  智能停车服务 - Smart Parking Server           ║
 ║                                                       ║
-║   Environment: ${config.env.padEnd(36)} ║
-║   Port:        ${config.port.toString().padEnd(36)} ║
-║   API:         http://localhost:${config.port}/api/v1${' '.repeat(13)}║
+║   Environment: ${config.NODE_ENV.padEnd(36)} ║
+║   Port:        ${config.PORT.toString().padEnd(36)} ║
+║   API:         http://localhost:${config.PORT}/api/v1${' '.repeat(13)}║
 ╚═══════════════════════════════════════════════════════╝
   `);
 });

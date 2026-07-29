@@ -10,15 +10,16 @@ export function requestId(req: Request, res: Response, next: NextFunction) {
   next();
 }
 
-// Express 类型扩展
-declare global {
-  namespace Express {
-    interface Request {
-      requestId: string;
-      user?: {
-        id: string;
-        role: string;
-      };
-    }
+// Express 类型扩展 - 使用 ES2015 模块语法替代 namespace
+import 'express';
+declare module 'express-serve-static-core' {
+  interface Request {
+    requestId: string;
+    user?: {
+      id: string;
+      role: 'superadmin' | 'admin' | 'operator' | 'cashier';
+      email?: string;
+      parkingId?: string;
+    };
   }
 }

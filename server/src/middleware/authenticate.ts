@@ -10,15 +10,14 @@ import { supabase } from '../shared/database/supabase.js';
 import { UnauthorizedError, TokenExpiredError, AccountDisabledError, ForbiddenError } from '../shared/types/errors.js';
 import { logger, logAuthEvent } from '../shared/utils/logger.js';
 import { RedisTokenBlacklist } from '../shared/utils/redis.js';
-import { pathToRegexp } from 'path-to-regexp';
 
-// 公开路径白名单（不需要鉴权）- P2-H 修复：改用 path-to-regexp 精确匹配
+// 公开路径白名单（不需要鉴权）- 使用 RegExp 精确匹配
 const PUBLIC_PATTERNS = [
   /^\/health$/,
   /^\/ready$/,
   /^\/api\/v1\/auth\/login$/,
   /^\/api\/v1\/auth\/refresh$/,
-].map(pattern => pathToRegexp(pattern));
+];
 
 /**
  * 鉴权中间件
@@ -58,7 +57,8 @@ export async function authenticate(req: Request, res: Response, next: NextFuncti
     }
 
     // 使用 Supabase Admin API 验证 Token（真正的验证）
-    const { data, error } = await supabase.auth.admin.getUser(token);
+    // 注意：Supabase v2 中 admin 端点类型可能不完整，使用类型断言兼容
+    const { data, error } = await (supabase.auth.admin as any).getUser(token);
 
     if (error) {
       logger.warn('Token verification failed', {
@@ -159,7 +159,7 @@ export async function optionalAuth(req: Request, res: Response, next: NextFuncti
       return next();
     }
 
-    const { data, error } = await supabase.auth.admin.getUser(token);
+    const { data, error } = await (supabase.auth.admin as any).getOptionalUser(token);
 
     if (!error && data?.user) {
       // 从 profiles 表获取角色

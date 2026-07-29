@@ -14,6 +14,9 @@ const EnvSchema = z.object({
   
   // Redis (可选)
   REDIS_URL: z.string().url().optional(),
+  REDIS_HOST: z.string().optional(),
+  REDIS_PORT: z.coerce.number().optional(),
+  REDIS_PASSWORD: z.string().optional(),
   
   // 外部服务
   LPR_API_URL: z.string().url().optional(),

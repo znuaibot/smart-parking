@@ -1,10 +1,14 @@
 // Pino 结构化日志封装
 // 开发环境使用 pino-pretty，生产环境输出 JSON
 
-import pino from 'pino';
+import * as pinoNS from 'pino';
 import { config } from '../../config/index.js';
 
-export const logger = pino({
+// 兼容 pino 默认导入（Vitest + Node 运行时通用）
+// ESM 中 pino.default 才是真正的工厂函数
+const pinoFactory = (pinoNS.default || pinoNS) as unknown as (opts?: pinoNS.LoggerOptions) => pinoNS.Logger;
+
+export const logger = pinoFactory({
   level: config.LOG_LEVEL,
   transport: config.NODE_ENV === 'development' 
     ? { target: 'pino-pretty', options: { colorize: true, translateTime: 'yyyy-mm-dd HH:MM:ss.l' } }
@@ -110,7 +114,7 @@ export function logAPICall(
  * @param details 详情
  */
 export function logAuthEvent(
-  event: 'login' | 'logout' | 'refresh' | 'failed',
+  event: 'login' | 'logout' | 'refresh' | 'failed' | 'password_change',
   details: {
     userId?: string;
     email?: string;

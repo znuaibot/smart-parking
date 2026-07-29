@@ -55,6 +55,7 @@ export class ParkingRepository {
   private buildSafeIlikeFilter(keyword: string): string {
     // 1. 清理输入：移除控制字符，限制长度
     const sanitized = keyword
+      // eslint-disable-next-line no-control-regex
       .replace(/[\x00-\x1F\x7F]/g, '')  // 移除控制字符
       .trim()
       .substring(0, 100);  // 限制长度为 100 字符
