@@ -137,14 +137,15 @@ describe('ParkingController', () => {
 
     it('参数无效时应该调用 next(error)', async () => {
       const req = {
-        body: { name: '', code: '!' }, // 无效参数
+        body: { name: '', code: '!' }, // 无效参数：name 为空，code 格式不符
       } as unknown as Request;
 
       await parkingController.create(req, res, next);
 
       expect(next).toHaveBeenCalled();
       const error = (next as any).mock.calls[0][0];
-      expect(error.statusCode || error.code).toBeDefined();
+      // ZodError 具有 issues 数组
+      expect(error.issues || error.statusCode || error.code).toBeDefined();
     });
   });
 

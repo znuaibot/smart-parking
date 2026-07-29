@@ -2,14 +2,14 @@
 // P0-B 修复：用 Redis 替代内存 Set，支持多实例共享和 TTL 自动过期
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import Redis from 'ioredis';
+import * as Redis from 'ioredis';
 import { config } from '../../config/index.js';
 import { logger } from './logger.js';
 import crypto from 'crypto';
 
-// 兼容 ioredis 默认导入类型
-const RedisClass = Redis as unknown as new (...args: any[]) => Redis.Redis;
+// 兼容 ioredis 默认导入（Vitest + Node 运行时通用）
 type RedisClient = Redis.Redis;
+const RedisClass = Redis as unknown as new (...args: any[]) => Redis.Redis;
 
 // Redis key 前缀
 const BLACKLIST_KEY_PREFIX = 'token:blacklist:';
