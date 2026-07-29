@@ -15,7 +15,7 @@ import type { AxiosRequestConfig } from 'axios';
 const localStorageMock = (() => {
   let store: Record<string, string> = {};
   return {
-    getItem: (key: string) => store[key] || null,
+    getItem: (key: string) => store[key] ?? null,
     setItem: (key: string, value: string) => { store[key] = value; },
     removeItem: (key: string) => { delete store[key]; },
     clear: () => { store = {}; },
@@ -61,16 +61,19 @@ import { authApi } from '@/api/auth';
  * @param handler 响应处理器，返回模拟响应或抛出错误
  */
 const createMockClient = (
-  handler: (config: AxiosRequestConfig) => Promise<unknown> | { status: number; data: unknown }
+  handler: (config: AxiosRequestConfig) => Promise<unknown> | Record<string, unknown>
 ) => {
-  const client = axios.create({ baseURL: '/api/v1' });
-  client.defaults.adapter = async (config: AxiosRequestConfig) => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const client = axios.create({ baseURL: '/api/v1' } as any);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (client.defaults as any).adapter = async (config: AxiosRequestConfig) => {
     const result = await handler(config);
     if (result && typeof result === 'object' && 'status' in result) {
+      const r = result as Record<string, unknown>;
       return {
-        data: (result as { data: unknown }).data,
-        status: (result as { status: number }).status,
-        statusText: result.status === 200 ? 'OK' : 'Error',
+        data: r.data,
+        status: r.status as number,
+        statusText: r.status === 200 ? 'OK' : 'Error',
         headers: {},
         config,
       };
@@ -363,11 +366,7 @@ describe('Auth Interceptor - isRefreshing 并发时序', () => {
     });
     localStorage.setItem('refreshToken', 'old-refresh');
 
-    try {
-      await client.get('/test');
-    } catch {
-      // 忽略后续错误
-    }
+    await client.get('/test').catch(() => {});
 
     expect(mockSetAccessToken).toHaveBeenCalledWith('brand-new-access');
   });

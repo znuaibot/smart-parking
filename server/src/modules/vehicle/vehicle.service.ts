@@ -133,6 +133,12 @@ export class VehicleService {
         operatorId: dto.operatorId,
       });
 
+      // 2.1 检查原子操作返回的错误（如 NOT_FOUND / NO_BILLING_RULE）
+      if (result && typeof result === 'object' && 'error' in result && result.error) {
+        const errMsg = (result as Record<string, unknown>).message;
+        throw new ConflictError(typeof errMsg === 'string' ? errMsg : '出场处理失败');
+      }
+
       // 3. 查询更新后的记录和账单用于返回
       const updatedRecord = await vehicleRepository.findById(record.id);
       const bill = await vehicleRepository.findBillByRecordId(record.id);

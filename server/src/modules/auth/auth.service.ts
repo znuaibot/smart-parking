@@ -214,10 +214,10 @@ export class AuthService {
       const redis = await this.getRedis();
       if (redis && redis.isAvailable()) {
         if (refreshToken) {
-          await redis.blacklist(accessToken, 3600);
-          await redis.blacklist(refreshToken, 604800);
+          await redis.blacklistToken(accessToken, 3600);
+          await redis.blacklistToken(refreshToken, 604800);
         } else {
-          await redis.blacklist(accessToken, 3600);
+          await redis.blacklistToken(accessToken, 3600);
         }
       }
 
@@ -271,7 +271,7 @@ export class AuthService {
 
       // P0-B 修复：刷新成功后，旧 refreshToken 立即入黑名单
       if (redis && redis.isAvailable()) {
-        await redis.blacklist(refreshToken, 604800); // 7 天 TTL
+        await redis.blacklistToken(refreshToken, 604800); // 7 天 TTL
       }
 
       logAuthEvent('refresh', { userId: data.user?.id });

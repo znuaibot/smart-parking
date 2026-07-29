@@ -27,7 +27,7 @@ interface AuthState {
   notifyLogout: () => void;
 }
 
-export const useAuthStore = create<AuthState>((set, get) => ({
+export const useAuthStore = create<AuthState>((set, _get) => ({
   user: getUserFromStorage(),
   accessToken: getAccessTokenFromStorage(),
   isAuthenticated: !!getAccessTokenFromStorage(),

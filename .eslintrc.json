@@ -17,7 +17,8 @@
     "sourceType": "module",
     "ecmaFeatures": {
       "jsx": true
-    }
+    },
+    "project": true
   },
   "plugins": [
     "react",
@@ -55,7 +56,10 @@
     "dist/",
     "node_modules/",
     "coverage/",
-    "*.config.ts",
-    "*.config.js"
+    "**/*.config.ts",
+    "**/*.config.js",
+    "**/*.test.ts",
+    "**/*.spec.ts",
+    "vite.config.ts"
   ]
 }

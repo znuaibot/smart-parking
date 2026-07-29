@@ -1,5 +1,5 @@
 import React from 'react';
-import { Form, Input, InputNumber, Button, Space, Select, message } from 'antd';
+import { Form, Input, Button, Space, Select, message, InputNumber } from 'antd';
 import { parkingApi } from '@/api/parking';
 import type { Parking, ParkingCreateInput, ParkingStatus } from '@/types';
 

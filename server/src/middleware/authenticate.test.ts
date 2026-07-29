@@ -4,8 +4,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Request, Response, NextFunction } from 'express';
 
-// 使用 vi.hoisted 解决 vi.mock 提升问题
+// 使用 vi.hoisted 确保 mock 对象在 vi.mock 提升前初始化
 const { mockSupabase, mockQueryChain } = vi.hoisted(() => {
+  // 共享的查询链对象，确保 from() 返回同一实例
   const chain = {
     select: vi.fn().mockReturnThis(),
     eq: vi.fn().mockReturnThis(),
@@ -31,20 +32,22 @@ vi.mock('../shared/database/supabase.js', () => ({
   getAnonClient: () => mockSupabase,
 }));
 
-// Mock Redis 黑名单
+// Mock RedisTokenBlacklist，避免真实 Redis 连接
 vi.mock('../shared/utils/redis.js', () => ({
   RedisTokenBlacklist: {
     getInstance: vi.fn().mockResolvedValue({
-      isBlacklisted: vi.fn().mockResolvedValue(false), // 测试中默认 token 不在黑名单
+      isBlacklisted: vi.fn().mockResolvedValue(false),
       blacklistToken: vi.fn().mockResolvedValue(undefined),
       blacklistTokenPair: vi.fn().mockResolvedValue(undefined),
       isAvailable: vi.fn().mockReturnValue(false),
+      close: vi.fn().mockResolvedValue(undefined),
     }),
   },
   UserSessionCache: {
     getInstance: vi.fn().mockResolvedValue({
       getUser: vi.fn().mockResolvedValue(null),
       setUser: vi.fn().mockResolvedValue(undefined),
+      invalidateUser: vi.fn().mockResolvedValue(undefined),
     }),
   },
 }));
@@ -168,7 +171,7 @@ describe('authenticate middleware', () => {
       error: null,
     });
     mockQueryChain.single.mockResolvedValue({
-      data: { role: 'operator', is_active: true, parking_id: 'park-123' },
+      data: { role: 'operator', status: 'active', parking_id: 'park-123' },
       error: null,
     });
 

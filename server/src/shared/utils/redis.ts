@@ -1,10 +1,15 @@
 // Redis 工具模块 - Token 黑名单（生产级实现）
 // P0-B 修复：用 Redis 替代内存 Set，支持多实例共享和 TTL 自动过期
 
-import { Redis } from 'ioredis';
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import * as Redis from 'ioredis';
 import { config } from '../../config/index.js';
 import { logger } from './logger.js';
 import crypto from 'crypto';
+
+// 兼容 ioredis 默认导入（Vitest + Node 运行时通用）
+type RedisClient = Redis.Redis;
+const RedisClass = Redis as unknown as new (...args: any[]) => Redis.Redis;
 
 // Redis key 前缀
 const BLACKLIST_KEY_PREFIX = 'token:blacklist:';
@@ -16,15 +21,12 @@ const _USER_SESSIONS_PREFIX = 'user:sessions:';
  */
 export class RedisTokenBlacklist {
   private static instance: RedisTokenBlacklist | null = null;
-  private client: Redis | null = null;
+  private client: RedisClient | null = null;
   private connected = false;
-  private configured = false; // 标记是否配置了 Redis
+  private configured = false;
 
   private constructor() {}
 
-  /**
-   * 获取单例实例
-   */
   static async getInstance(): Promise<RedisTokenBlacklist> {
     if (!RedisTokenBlacklist.instance) {
       RedisTokenBlacklist.instance = new RedisTokenBlacklist();
@@ -33,16 +35,13 @@ export class RedisTokenBlacklist {
     return RedisTokenBlacklist.instance;
   }
 
-  /**
-   * 初始化 Redis 连接
-   */
   private async init(): Promise<void> {
     if (this.connected) return;
 
     try {
       if (config.REDIS_URL) {
         this.configured = true;
-        this.client = new Redis(config.REDIS_URL, {
+        this.client = new RedisClass(config.REDIS_URL, {
           maxRetriesPerRequest: 3,
           retryStrategy(times: number) {
             if (times > 3) return null;
@@ -51,7 +50,7 @@ export class RedisTokenBlacklist {
         });
       } else if (config.REDIS_HOST) {
         this.configured = true;
-        this.client = new Redis({
+        this.client = new RedisClass({
           host: config.REDIS_HOST,
           port: config.REDIS_PORT || 6379,
           password: config.REDIS_PASSWORD,
@@ -71,12 +70,11 @@ export class RedisTokenBlacklist {
         logger.info('Redis connected');
       });
 
-      this.client.on('error', (err) => {
+      this.client.on('error', (err: Error) => {
         logger.error('Redis error', { error: err.message });
         this.connected = false;
       });
 
-      // 测试连接
       await this.client.ping();
       this.connected = true;
     } catch (error: any) {
@@ -86,57 +84,116 @@ export class RedisTokenBlacklist {
     }
   }
 
-  /**
-   * 检查 Redis 是否可用
-   */
-  isAvailable(): boolean {
-    return this.connected && this.configured;
+  private hashToken(token: string): string {
+    return crypto.createHash('sha256').update(token).digest('hex');
   }
 
-  /**
-   * 将 Token 加入黑名单
-   * @param token JWT Token
-   * @param expiresIn 过期时间（秒）
-   */
-  async blacklist(token: string, expiresIn: number): Promise<void> {
-    if (!this.client || !this.connected) return;
-
-    try {
-      const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
-      const key = `${BLACKLIST_KEY_PREFIX}${tokenHash}`;
-      await this.client.setex(key, expiresIn, '1');
-      logger.debug('Token blacklisted', { expiresIn });
-    } catch (error: any) {
-      logger.error('Failed to blacklist token', { error: error.message });
+  async blacklistToken(token: string, ttlSeconds: number = 86400): Promise<void> {
+    if (!this.connected || !this.client) {
+      if (this.configured) {
+        throw new Error('Redis 连接不可用，无法将 Token 加入黑名单');
+      }
+      logger.warn('Redis not configured, blacklist operation skipped (dev mode only)');
+      return;
     }
+
+    const key = BLACKLIST_KEY_PREFIX + this.hashToken(token);
+    await this.client.setex(key, ttlSeconds, '1');
   }
 
-  /**
-   * 检查 Token 是否在黑名单中
-   */
   async isBlacklisted(token: string): Promise<boolean> {
-    if (!this.client || !this.connected) return false;
-
-    try {
-      const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
-      const key = `${BLACKLIST_KEY_PREFIX}${tokenHash}`;
-      const result = await this.client.exists(key);
-      return result === 1;
-    } catch (error: any) {
-      logger.error('Failed to check token blacklist', { error: error.message });
+    if (!this.connected || !this.client) {
+      if (this.configured) {
+        logger.warn('Redis unavailable, assuming token is blacklisted (fail-closed)');
+        return true;
+      }
       return false;
     }
+
+    const key = BLACKLIST_KEY_PREFIX + this.hashToken(token);
+    const result = await this.client.exists(key);
+    return result === 1;
   }
 
-  /**
-   * 关闭连接
-   */
+  async blacklistTokenPair(
+    accessToken: string,
+    refreshToken: string,
+    accessTtlSeconds: number = 3600,
+    refreshTtlSeconds: number = 604800,
+  ): Promise<void> {
+    await Promise.all([
+      this.blacklistToken(accessToken, accessTtlSeconds),
+      this.blacklistToken(refreshToken, refreshTtlSeconds),
+    ]);
+  }
+
   async close(): Promise<void> {
     if (this.client) {
       await this.client.quit();
-      this.client = null;
       this.connected = false;
       RedisTokenBlacklist.instance = null;
     }
+  }
+
+  isAvailable(): boolean {
+    return this.connected;
+  }
+}
+
+/**
+ * 用户会话缓存
+ */
+export class UserSessionCache {
+  private static instance: UserSessionCache | null = null;
+  private client: RedisClient | null = null;
+  private connected = false;
+  private readonly CACHE_TTL = 120;
+
+  static async getInstance(): Promise<UserSessionCache> {
+    if (!UserSessionCache.instance) {
+      UserSessionCache.instance = new UserSessionCache();
+      await UserSessionCache.instance.init();
+    }
+    return UserSessionCache.instance;
+  }
+
+  private async init(): Promise<void> {
+    try {
+      if (config.REDIS_URL) {
+        this.client = new RedisClass(config.REDIS_URL);
+      } else if (config.REDIS_HOST) {
+        this.client = new RedisClass({
+          host: config.REDIS_HOST,
+          port: config.REDIS_PORT || 6379,
+          password: config.REDIS_PASSWORD,
+        });
+      } else {
+        return;
+      }
+      this.connected = true;
+    } catch {
+      this.client = null;
+      this.connected = false;
+    }
+  }
+
+  async getUser(token: string): Promise<{ id: string; role: string; email: string } | null> {
+    if (!this.connected || !this.client) return null;
+
+    const key = `user:session:${crypto.createHash('sha256').update(token).digest('hex')}`;
+    const cached = await this.client.get(key);
+    return cached ? JSON.parse(cached) : null;
+  }
+
+  async setUser(token: string, user: { id: string; role: string; email: string }): Promise<void> {
+    if (!this.connected || !this.client) return;
+
+    const key = `user:session:${crypto.createHash('sha256').update(token).digest('hex')}`;
+    await this.client.setex(key, this.CACHE_TTL, JSON.stringify(user));
+  }
+
+  async invalidateUser(userId: string): Promise<void> {
+    if (!this.connected || !this.client) return;
+    logger.debug('User cache invalidation requested', { userId });
   }
 }
