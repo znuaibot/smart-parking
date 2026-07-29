@@ -73,7 +73,8 @@ const SpaceListPage: React.FC = () => {
     }
   );
 
-  const spaces = data ?? [];
+  // 使用 useMemo 稳定 spaces 引用，避免每次渲染产生新数组导致下游 useMemo 失效
+  const spaces = useMemo(() => data ?? [], [data]);
 
   // Stats computation (derived from query data)
   const stats = useMemo(() => ({
