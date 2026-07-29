@@ -13,7 +13,7 @@ const RedisClass = Redis as unknown as new (...args: any[]) => Redis.Redis;
 
 // Redis key 前缀
 const BLACKLIST_KEY_PREFIX = 'token:blacklist:';
-const USER_SESSIONS_PREFIX = 'user:sessions:';
+const _USER_SESSIONS_PREFIX = 'user:sessions:';
 
 /**
  * Token 黑名单管理器
