@@ -24,7 +24,7 @@ jobs:
           cache: 'npm'
 
       - name: 安装依赖
-        run: npm install --legacy-peer-deps
+        run: npm ci
 
       - name: ESLint 检查
         run: npm run lint
@@ -68,7 +68,7 @@ jobs:
           cache: 'npm'
 
       - name: 安装依赖
-        run: npm install --legacy-peer-deps
+        run: npm ci
 
       - name: 运行服务端测试
         run: |
