@@ -17,7 +17,9 @@ declare module 'express-serve-static-core' {
     requestId: string;
     user?: {
       id: string;
-      role: string;
+      role: 'superadmin' | 'admin' | 'operator' | 'cashier';
+      email?: string;
+      parkingId?: string;
     };
   }
 }

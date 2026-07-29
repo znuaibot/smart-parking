@@ -63,7 +63,7 @@ function isRetryableError(error: any): boolean {
  * @returns 查询结果
  */
 export async function withRetry<T>(
-  queryFn: () => Promise<{ data: T | null; error: any }>,
+  queryFn: () => PromiseLike<{ data: T | null; error: any }>,
   queryName: string = 'unknown_query',
 ): Promise<T> {
   let lastError: any;
@@ -127,7 +127,8 @@ export async function withRetry<T>(
 export async function testConnection(): Promise<boolean> {
   try {
     const startTime = Date.now();
-    const { error } = await supabaseInstance
+    const supabase = getSupabase();
+    const { error } = await supabase
       .from('parkings')
       .select('id')
       .limit(1);

@@ -2,7 +2,7 @@
 // 处理 HTTP 请求和响应
 
 import { Request, Response, NextFunction } from 'express';
-import { statsService, RealtimeStatsResponse, WeeklyStatsResponse } from './stats.service.js';
+import { statsService, RealtimeStatsResponse, WeeklyStatsResult } from './stats.service.js';
 import { logger } from '../../shared/utils/logger.js';
 
 export class StatsController {

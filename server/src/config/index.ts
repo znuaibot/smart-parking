@@ -75,7 +75,7 @@ export async function getRedisClient(): Promise<any> {
   }
   
   try {
-    const Redis = (await import('ioredis')).default;
+    const Redis = (await import('ioredis')).default as unknown as new (...args: any[]) => any;
     redisClient = new Redis(config.REDIS_URL || {
       host: config.REDIS_HOST,
       port: config.REDIS_PORT || 6379,

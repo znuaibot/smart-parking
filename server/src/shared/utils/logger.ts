@@ -1,7 +1,7 @@
 // Pino 结构化日志封装
 // 开发环境使用 pino-pretty，生产环境输出 JSON
 
-import pino from 'pino';
+import { pino } from 'pino';
 import { config } from '../../config/index.js';
 
 export const logger = pino({
@@ -110,7 +110,7 @@ export function logAPICall(
  * @param details 详情
  */
 export function logAuthEvent(
-  event: 'login' | 'logout' | 'refresh' | 'failed',
+  event: 'login' | 'logout' | 'refresh' | 'failed' | 'password_change',
   details: {
     userId?: string;
     email?: string;

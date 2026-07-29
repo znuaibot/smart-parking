@@ -1,7 +1,7 @@
 // 统计模块 - 数据访问层
 // 负责与 Supabase 数据库交互，查询统计相关数据
 
-import { supabase, withRetry } from '../../shared/database/supabase.js';
+import { supabase } from '../../shared/database/supabase.js';
 import { logger, logDbQuery } from '../../shared/utils/logger.js';
 
 // ==================== 类型定义 ====================
@@ -57,14 +57,13 @@ export class StatsRepository {
   async getRealtimeStats(parkingId: string): Promise<RealtimeStats | null> {
     const startTime = Date.now();
     try {
-      const result = await withRetry(
-        () => supabase
+      const { data, error } = await supabase
           .from('parking_availability')
           .select('*')
           .eq('id', parkingId)
-          .single(),
-        'getRealtimeStats',
-      );
+          .single();
+      const result = data;
+      if (error) throw error;
 
       logDbQuery(
         { table: 'parking_availability', operation: 'select' },
@@ -99,15 +98,14 @@ export class StatsRepository {
   async getDailyStats(parkingId: string, date: string): Promise<DailyStats | null> {
     const startTime = Date.now();
     try {
-      const result = await withRetry(
-        () => supabase
+      const { data, error } = await supabase
           .from('daily_stats')
           .select('*')
           .eq('parking_id', parkingId)
           .eq('stat_date', date)
-          .single(),
-        'getDailyStats',
-      );
+          .single();
+      const result = data;
+      if (error) throw error;
 
       logDbQuery(
         { table: 'daily_stats', operation: 'select' },
@@ -147,16 +145,14 @@ export class StatsRepository {
   ): Promise<DailyStats[]> {
     const startTime = Date.now();
     try {
-      const results = await withRetry(
-        () => supabase
+      const { data: results, error } = await supabase
           .from('daily_stats')
           .select('*')
           .eq('parking_id', parkingId)
           .gte('stat_date', startDate)
           .lte('stat_date', endDate)
-          .order('stat_date', { ascending: true }),
-        'getDailyStatsRange',
-      );
+          .order('stat_date', { ascending: true });
+      if (error) throw error;
 
       logDbQuery(
         { table: 'daily_stats', operation: 'select_range' },
